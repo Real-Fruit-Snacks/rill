@@ -1,18 +1,26 @@
 ; sort.asm — sort the lines of input.
 ;
-;   sort [-r] [-n] [-u] [FILE...]
+;   sort [-r] [-n] [-u] [-f] [-k FIELD] [-t SEP] [FILE...]
 ;
-; -r   reverse sort
-; -n   numeric (compare leading integer; non-numeric prefix counts as 0)
-; -u   unique (collapse consecutive equals after sort)
+; -r          reverse sort
+; -n          numeric (compare leading integer; non-numeric prefix = 0)
+; -u          unique (collapse consecutive equals after sort)
+; -f          fold lower-case to upper-case for the comparison (ASCII)
+; -k F[,G]    sort using field F (1-based), optionally through field G;
+;             without the comma the key extends to end-of-line
+; -t SEP      use SEP (single byte) as the field separator. Without -t,
+;             fields are runs of non-blank characters separated by blank
+;             runs (POSIX whitespace mode); leading blanks before field 1
+;             are skipped.
 ;
 ; Implementation: read everything into a 16 MB .bss buffer, NUL-terminate
 ; each line in place, build a pointer array (up to 256 K lines), quicksort
 ; the pointers, then walk and emit. Inputs larger than the buffer error
 ; out — coreutils' external-merge fallback isn't here yet.
 ;
-; Deferred: -k FIELD, -t SEP, -f case-fold, -b skip-leading-blanks, stable
-; sort, locale collation. Multibyte input is treated as bytes.
+; Deferred: -b skip-leading-blanks per-key, key-modifier suffixes
+; (e.g. `-k 2n`), stable sort, locale collation, multi-key. Multibyte
+; input is treated as bytes.
 
 BITS 64
 DEFAULT REL
@@ -36,25 +44,28 @@ global applet_sort_main
 
 section .bss
 align 16
-sort_buf:        resb BUF_BYTES
-sort_lines:      resq MAX_LINES
-sort_outbuf:     resb OUT_BYTES
-sort_buf_used:   resq 1
-sort_n_lines:    resq 1
-sort_outpos:     resq 1
-sort_flag_r:     resb 1
-sort_flag_n:     resb 1
-sort_flag_u:     resb 1
+sort_buf:           resb BUF_BYTES
+sort_lines:         resq MAX_LINES
+sort_outbuf:        resb OUT_BYTES
+sort_buf_used:      resq 1
+sort_n_lines:       resq 1
+sort_outpos:        resq 1
+sort_field_start:   resq 1              ; 0 = no -k (whole line)
+sort_field_end:     resq 1              ; 0 = "to end of line"
+sort_flag_r:        resb 1
+sort_flag_n:        resb 1
+sort_flag_u:        resb 1
+sort_flag_f:        resb 1
+sort_delim_char:    resb 1              ; 0 = whitespace mode
 
 section .rodata
-opt_r:        db "-r", 0
-opt_n:        db "-n", 0
-opt_u:        db "-u", 0
 prefix_sort:  db "sort", 0
 err_too_big:  db "sort: input exceeds 16 MB buffer", 10
 err_too_big_len: equ $ - err_too_big
 err_too_many: db "sort: too many lines (limit 262144)", 10
 err_too_many_len: equ $ - err_too_many
+err_bad_opt:  db "sort: missing argument for -k or -t", 10
+err_bad_opt_len: equ $ - err_bad_opt
 
 section .text
 
@@ -72,6 +83,10 @@ applet_sort_main:
     mov     byte [rel sort_flag_r], 0
     mov     byte [rel sort_flag_n], 0
     mov     byte [rel sort_flag_u], 0
+    mov     byte [rel sort_flag_f], 0
+    mov     byte [rel sort_delim_char], 0
+    mov     qword [rel sort_field_start], 0
+    mov     qword [rel sort_field_end], 0
     mov     qword [rel sort_buf_used], 0
     mov     qword [rel sort_n_lines], 0
     mov     qword [rel sort_outpos], 0
@@ -97,6 +112,12 @@ applet_sort_main:
     je      .set_n
     cmp     al, 'u'
     je      .set_u
+    cmp     al, 'f'
+    je      .set_f
+    cmp     al, 'k'
+    je      .set_k
+    cmp     al, 't'
+    je      .set_t
     jmp     .flags_done             ; unknown short flag stops parsing
 .set_r: mov byte [rel sort_flag_r], 1
         inc rdi
@@ -107,6 +128,54 @@ applet_sort_main:
 .set_u: mov byte [rel sort_flag_u], 1
         inc rdi
         jmp .flag_char
+.set_f: mov byte [rel sort_flag_f], 1
+        inc rdi
+        jmp .flag_char
+
+    ; -k FIELD or -kFIELD. The value, when in the same arg, is the rest
+    ; of the arg after 'k'. When in the next arg, we advance r12d once
+    ; here and the .next_arg trailer increments it again.
+.set_k:
+    inc     rdi
+    movzx   eax, byte [rdi]
+    test    eax, eax
+    jz      .k_take_next
+    call    parse_field_spec
+    jmp     .next_arg
+.k_take_next:
+    inc     r12d
+    cmp     r12d, ebx
+    jge     .bad_opt
+    mov     rdi, [rbp + r12*8]
+    call    parse_field_spec
+    jmp     .next_arg
+
+.set_t:
+    inc     rdi
+    movzx   eax, byte [rdi]
+    test    eax, eax
+    jz      .t_take_next
+    mov     [rel sort_delim_char], al
+    jmp     .next_arg
+.t_take_next:
+    inc     r12d
+    cmp     r12d, ebx
+    jge     .bad_opt
+    mov     rdi, [rbp + r12*8]
+    movzx   eax, byte [rdi]
+    test    eax, eax
+    jz      .bad_opt
+    mov     [rel sort_delim_char], al
+    jmp     .next_arg
+
+.bad_opt:
+    mov     eax, SYS_write
+    mov     edi, STDERR_FILENO
+    lea     rsi, [rel err_bad_opt]
+    mov     edx, err_bad_opt_len
+    syscall
+    mov     r13d, 1
+    jmp     .out
 
 .next_arg:
     inc     r12d
@@ -292,77 +361,333 @@ build_line_index:
 ; ---------------------------------------------------------------------------
 ; compare_strs(a /rdi/, b /rsi/) -> rax  (-1, 0, +1)
 ;
-; Branches on the active flags. Always returns -1 / 0 / +1 (not raw
-; subtraction) so the negation for -r is well-defined on signed reg.
+; Extracts the comparison key from each line per the active -k/-t/-f
+; settings, then compares byte-wise (or numerically with -n, falling back
+; to byte-wise on tie). Always returns a normalized -1 / 0 / +1 so the
+; -r negation is well-defined.
+;
+; Stack: 1 push + sub 48 = 56 bytes; from 8 mod 16 entry -> 0 mod 16 at
+; inner call sites. Locals (relative to rsp):
+;   [ 0]  sa  start of A's key
+;   [ 8]  ea  end of A's key
+;   [16]  sb  start of B's key
+;   [24]  eb  end of B's key
+;   [32]  va  parsed numeric value of A (for -n)
+;   [40]  saved B pointer (only across extract_key)
 compare_strs:
+    push    rbp
+    sub     rsp, 48
+
+    mov     [rsp + 40], rsi         ; saved B (rdi will be clobbered)
+    lea     rsi, [rsp + 0]
+    lea     rdx, [rsp + 8]
+    call    extract_key
+
+    mov     rdi, [rsp + 40]
+    lea     rsi, [rsp + 16]
+    lea     rdx, [rsp + 24]
+    call    extract_key
+
     cmp     byte [rel sort_flag_n], 0
     jne     .numeric
 
-.alpha:
-    ; Byte-wise compare until both NUL.
-.alpha_loop:
-    movzx   eax, byte [rdi]
-    movzx   ecx, byte [rsi]
-    cmp     eax, ecx
-    jne     .alpha_diff
-    test    eax, eax
-    jz      .equal
-    inc     rdi
-    inc     rsi
-    jmp     .alpha_loop
-.alpha_diff:
-    jb      .less
-    jmp     .greater
+    mov     rdi, [rsp + 0]
+    mov     rsi, [rsp + 8]
+    mov     rdx, [rsp + 16]
+    mov     rcx, [rsp + 24]
+    call    compare_bytes_keys
+    jmp     .reverse
 
 .numeric:
-    push    rdi                     ; save A (=a)
-    push    rsi                     ; save B (=b)
-    sub     rsp, 8                  ; align (2 pushes + sub 8 = 24 bytes;
-                                    ; from entry's 8 mod 16 -> 0 mod 16)
+    mov     rdi, [rsp + 0]
+    mov     rsi, [rsp + 8]
+    call    parse_int_bounded
+    mov     [rsp + 32], rax
 
-    ; rdi still = A; parse it.
-    call    parse_leading_int
-    mov     r8, rax                 ; va
+    mov     rdi, [rsp + 16]
+    mov     rsi, [rsp + 24]
+    call    parse_int_bounded
+    mov     rcx, rax                ; vb
+    mov     rax, [rsp + 32]         ; va
 
-    mov     rdi, [rsp + 8]          ; B (rsi value; second push)
-    call    parse_leading_int
-    mov     r9, rax                 ; vb
-
-    add     rsp, 8
-    pop     rsi
-    pop     rdi
-
-    cmp     r8, r9
-    jl      .less_signed
-    jg      .greater_signed
-    jmp     .alpha                  ; tie → fall back to byte compare
-
-.less_signed:
+    cmp     rax, rcx
+    jl      .num_less
+    jg      .num_greater
+    ; Tie on numeric → fall back to bytewise (matches coreutils stable-ish
+    ; behavior on equal numeric keys).
+    mov     rdi, [rsp + 0]
+    mov     rsi, [rsp + 8]
+    mov     rdx, [rsp + 16]
+    mov     rcx, [rsp + 24]
+    call    compare_bytes_keys
+    jmp     .reverse
+.num_less:
     mov     rax, -1
     jmp     .reverse
-.greater_signed:
+.num_greater:
     mov     rax, 1
-    jmp     .reverse
-.less:
-    mov     rax, -1
-    jmp     .reverse
-.greater:
-    mov     rax, 1
-    jmp     .reverse
-.equal:
-    xor     eax, eax
+
 .reverse:
     cmp     byte [rel sort_flag_r], 0
-    je      .done
+    je      .out
     neg     rax
-.done:
+
+.out:
+    add     rsp, 48
+    pop     rbp
     ret
 
-; parse_leading_int(s /rdi/) -> rax (signed int64; 0 if no digits)
-parse_leading_int:
+; ---------------------------------------------------------------------------
+; extract_key(line /rdi/, *out_start /rsi/, *out_end /rdx/)
+;
+; Identifies the byte range within `line` that compose the comparison key.
+; If sort_field_start is 0 (no -k), the key is the whole line.
+;
+; In whitespace mode (no -t), the line is split on runs of ' ' or '\t';
+; the first field's leading blanks are skipped. With -t, fields are split
+; on the chosen delimiter byte exactly (consecutive delims yield empty
+; fields).
+;
+;   Stack: 5 callee-saved pushes -> 0 mod 16 at inner... but extract_key
+;   makes no inner calls, so alignment doesn't matter further. Just
+;   restoring caller-saved state is the priority.
+extract_key:
+    push    rbx
+    push    rbp
+    push    r12
+    push    r13
+    push    r14
+
+    mov     rbx, rdi                ; cursor through line
+    mov     rbp, rsi                ; out_start ptr
+    mov     r12, rdx                ; out_end ptr
+    movzx   r14d, byte [rel sort_delim_char]
+
+    mov     rax, [rel sort_field_start]
+    test    rax, rax
+    jnz     .have_field
+
+    ; No -k: key is the whole line. Find NUL.
+    mov     [rbp], rbx
+    mov     rdi, rbx
+.full_line_scan:
+    cmp     byte [rdi], 0
+    je      .full_line_done
+    inc     rdi
+    jmp     .full_line_scan
+.full_line_done:
+    mov     [r12], rdi
+    jmp     .out
+
+.have_field:
+    mov     r13, 1                  ; current field index
+
+    ; In whitespace mode, leading blanks are part of "before field 1" and
+    ; are skipped. With -t, no skipping (consecutive delims at start
+    ; produce empty fields).
+    test    r14d, r14d
+    jnz     .walk_to_start
+
+.skip_lead_ws:
+    movzx   eax, byte [rbx]
+    cmp     eax, ' '
+    je      .skip_lead_inc
+    cmp     eax, 9
+    je      .skip_lead_inc
+    jmp     .walk_to_start
+.skip_lead_inc:
+    inc     rbx
+    jmp     .skip_lead_ws
+
+.walk_to_start:
+    cmp     r13, [rel sort_field_start]
+    jge     .at_start
+
+    test    r14d, r14d
+    jnz     .delim_advance
+
+    ; Whitespace: consume the current field (non-blanks), then a blank run.
+.ws_field_consume:
+    movzx   eax, byte [rbx]
+    test    eax, eax
+    jz      .at_start               ; ran past EOL: empty key
+    cmp     eax, ' '
+    je      .ws_blank_run
+    cmp     eax, 9
+    je      .ws_blank_run
+    inc     rbx
+    jmp     .ws_field_consume
+.ws_blank_run:
+    movzx   eax, byte [rbx]
+    cmp     eax, ' '
+    je      .ws_blank_run_inc
+    cmp     eax, 9
+    je      .ws_blank_run_inc
+    jmp     .field_advanced
+.ws_blank_run_inc:
+    inc     rbx
+    jmp     .ws_blank_run
+
+.delim_advance:
+    movzx   eax, byte [rbx]
+    test    eax, eax
+    jz      .at_start
+    cmp     al, r14b
+    je      .delim_skip_one
+    inc     rbx
+    jmp     .delim_advance
+.delim_skip_one:
+    inc     rbx                     ; consume the delim itself
+
+.field_advanced:
+    inc     r13
+    jmp     .walk_to_start
+
+.at_start:
+    mov     [rbp], rbx
+
+    mov     rax, [rel sort_field_end]
+    test    rax, rax
+    jnz     .walk_to_end
+
+    ; No end_field: extend key to NUL.
+.eol_scan:
+    cmp     byte [rbx], 0
+    je      .eol_done
+    inc     rbx
+    jmp     .eol_scan
+.eol_done:
+    mov     [r12], rbx
+    jmp     .out
+
+.walk_to_end:
+    cmp     r13, [rel sort_field_end]
+    jg      .at_end
+
+    test    r14d, r14d
+    jnz     .delim_to_end
+
+    ; Whitespace: consume the current field (non-blanks).
+.ws_to_end:
+    movzx   eax, byte [rbx]
+    test    eax, eax
+    jz      .at_end
+    cmp     eax, ' '
+    je      .ws_to_end_field_done
+    cmp     eax, 9
+    je      .ws_to_end_field_done
+    inc     rbx
+    jmp     .ws_to_end
+.ws_to_end_field_done:
+    cmp     r13, [rel sort_field_end]
+    jge     .at_end
+    ; Eat the blank-run separator and continue with the next field.
+.ws_to_end_blanks:
+    movzx   eax, byte [rbx]
+    cmp     eax, ' '
+    je      .ws_to_end_blanks_inc
+    cmp     eax, 9
+    je      .ws_to_end_blanks_inc
+    jmp     .field_walk_advanced
+.ws_to_end_blanks_inc:
+    inc     rbx
+    jmp     .ws_to_end_blanks
+
+.delim_to_end:
+    movzx   eax, byte [rbx]
+    test    eax, eax
+    jz      .at_end
+    cmp     al, r14b
+    je      .dte_at_delim
+    inc     rbx
+    jmp     .delim_to_end
+.dte_at_delim:
+    cmp     r13, [rel sort_field_end]
+    jge     .at_end
+    inc     rbx                     ; consume delim
+.field_walk_advanced:
+    inc     r13
+    jmp     .walk_to_end
+
+.at_end:
+    mov     [r12], rbx
+
+.out:
+    pop     r14
+    pop     r13
+    pop     r12
+    pop     rbp
+    pop     rbx
+    ret
+
+; ---------------------------------------------------------------------------
+; compare_bytes_keys(sa /rdi/, ea /rsi/, sb /rdx/, eb /rcx/) -> rax (-1/0/1)
+;
+; Bytewise compare of [sa, ea) vs [sb, eb), with -f case-fold (ASCII).
+compare_bytes_keys:
+.loop:
+    cmp     rdi, rsi
+    jae     .a_done
+    cmp     rdx, rcx
+    jae     .b_done
+
+    movzx   eax, byte [rdi]
+    movzx   r8d, byte [rdx]
+
+    cmp     byte [rel sort_flag_f], 0
+    je      .compare_now
+
+    cmp     eax, 'A'
+    jb      .a_no_fold
+    cmp     eax, 'Z'
+    ja      .a_no_fold
+    add     eax, 'a' - 'A'
+.a_no_fold:
+    cmp     r8d, 'A'
+    jb      .b_no_fold
+    cmp     r8d, 'Z'
+    ja      .b_no_fold
+    add     r8d, 'a' - 'A'
+.b_no_fold:
+
+.compare_now:
+    cmp     eax, r8d
+    jb      .less
+    ja      .greater
+    inc     rdi
+    inc     rdx
+    jmp     .loop
+
+.a_done:
+    cmp     rdx, rcx
+    jae     .equal
+    jmp     .less                   ; A exhausted, B has more → A < B
+.b_done:
+    jmp     .greater                ; B exhausted, A has more → A > B
+
+.less:
+    mov     rax, -1
+    ret
+.greater:
+    mov     rax, 1
+    ret
+.equal:
+    xor     eax, eax
+    ret
+
+; ---------------------------------------------------------------------------
+; parse_int_bounded(s /rdi/, end /rsi/) -> rax (signed int64; 0 on no digits)
+;
+; Like the original parse_leading_int, but stops at `end` as well as at any
+; non-digit byte. Used so that with -t '<digit>' the key range can end on
+; a digit without bleeding into the parse.
+parse_int_bounded:
     xor     eax, eax
     xor     ecx, ecx                ; sign
+
 .skip_ws:
+    cmp     rdi, rsi
+    jae     .check_sign
     movzx   edx, byte [rdi]
     cmp     edx, ' '
     je      .ws_inc
@@ -374,6 +699,9 @@ parse_leading_int:
     jmp     .skip_ws
 
 .check_sign:
+    cmp     rdi, rsi
+    jae     .digits
+    movzx   edx, byte [rdi]
     cmp     edx, '-'
     jne     .check_pos
     mov     ecx, 1
@@ -385,6 +713,8 @@ parse_leading_int:
     inc     rdi
 
 .digits:
+    cmp     rdi, rsi
+    jae     .done
     movzx   edx, byte [rdi]
     sub     edx, '0'
     cmp     edx, 9
@@ -398,6 +728,57 @@ parse_leading_int:
     test    ecx, ecx
     jz      .ret
     neg     rax
+.ret:
+    ret
+
+; ---------------------------------------------------------------------------
+; parse_field_spec(s /rdi/) — parses N or N,M into sort_field_start /_end.
+;
+; Trailing modifier characters (e.g. `2n`) and explicit `.C` character
+; offsets are accepted by skipping them — this build can't honor them but
+; ignoring is safer than rejecting.
+parse_field_spec:
+    xor     eax, eax
+.start_digits:
+    movzx   ecx, byte [rdi]
+    sub     ecx, '0'
+    cmp     ecx, 9
+    ja      .start_done
+    imul    rax, rax, 10
+    add     rax, rcx
+    inc     rdi
+    jmp     .start_digits
+.start_done:
+    test    rax, rax
+    jz      .skip_modifiers          ; "0" — leave start at 0 (whole line)
+    mov     [rel sort_field_start], rax
+
+.skip_modifiers:
+    ; Skip optional `.C` and any modifier letters until ',' or NUL.
+.scan_until_sep:
+    movzx   ecx, byte [rdi]
+    test    ecx, ecx
+    jz      .ret
+    cmp     ecx, ','
+    je      .at_comma
+    inc     rdi
+    jmp     .scan_until_sep
+
+.at_comma:
+    inc     rdi
+    xor     eax, eax
+.end_digits:
+    movzx   ecx, byte [rdi]
+    sub     ecx, '0'
+    cmp     ecx, 9
+    ja      .end_done
+    imul    rax, rax, 10
+    add     rax, rcx
+    inc     rdi
+    jmp     .end_digits
+.end_done:
+    mov     [rel sort_field_end], rax
+
 .ret:
     ret
 

@@ -65,3 +65,49 @@ teardown() {
     out=$(printf 'b\na' | applet sort)
     [ "$out" = "$(printf 'a\nb')" ]
 }
+
+@test "sort -k 2 sorts on the second field" {
+    out=$(printf 'banana 2\napple 1\ncherry 3\n' | applet sort -k 2)
+    [ "$out" = "$(printf 'apple 1\nbanana 2\ncherry 3')" ]
+}
+
+@test "sort -k 2 -n combines field selection and numeric" {
+    out=$(printf 'banana 30\napple 100\ncherry 5\n' | applet sort -k 2 -n)
+    [ "$out" = "$(printf 'cherry 5\nbanana 30\napple 100')" ]
+}
+
+@test "sort -k 1,1 limits comparison to a single field" {
+    # First-field tie-break: only field 1 matters; field 2 remains in
+    # input order for equal keys (we're not strictly stable but the keys
+    # here are all distinct).
+    out=$(printf 'b zzz\na yyy\nc xxx\n' | applet sort -k 1,1)
+    [ "$out" = "$(printf 'a yyy\nb zzz\nc xxx')" ]
+}
+
+@test "sort -t : -k 2 uses ':' as field separator" {
+    out=$(printf 'foo:b\nbar:a\nbaz:c\n' | applet sort -t : -k 2)
+    [ "$out" = "$(printf 'bar:a\nfoo:b\nbaz:c')" ]
+}
+
+@test "sort -t, -k2 inline single-arg form" {
+    out=$(printf 'a,3\nb,1\nc,2\n' | applet sort -t, -k2)
+    [ "$out" = "$(printf 'b,1\nc,2\na,3')" ]
+}
+
+@test "sort -f folds case for comparison" {
+    # 'apple' < 'Banana' under -f because 'a' == 'A' < 'B'.
+    out=$(printf 'apple\nBanana\nCherry\nbutter\n' | applet sort -f)
+    expected=$(printf 'apple\nBanana\nCherry\nbutter\n' | /usr/bin/sort -f)
+    [ "$out" = "$expected" ]
+}
+
+@test "sort -k matches coreutils on a typical input" {
+    printf 'banana 30\napple 100\ncherry 5\nplum 17\n' > "$TMPDIR/in"
+    diff <(applet sort -k 2 -n "$TMPDIR/in") <(/usr/bin/sort -k 2 -n "$TMPDIR/in")
+}
+
+@test "sort -t with no arg errors" {
+    run applet sort -t
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"missing argument"* ]]
+}
