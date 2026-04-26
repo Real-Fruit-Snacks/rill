@@ -44,6 +44,7 @@
 %define SYS_getgid       104
 %define SYS_geteuid      107
 %define SYS_getegid      108
+%define SYS_getdents64   217
 %define SYS_exit_group   231
 %define SYS_openat       257
 %define SYS_unlinkat     263

@@ -46,6 +46,11 @@ extern applet_touch_main
 extern applet_ln_main
 extern applet_readlink_main
 extern applet_chmod_main
+extern applet_ls_main
+extern applet_cp_main
+extern applet_mv_main
+extern applet_stat_main
+extern applet_chown_main
 
 ; ---------------------------------------------------------------------------
 ; .rodata
@@ -71,6 +76,11 @@ name_touch:    db "touch", 0
 name_ln:       db "ln", 0
 name_readlink: db "readlink", 0
 name_chmod:    db "chmod", 0
+name_ls:       db "ls", 0
+name_cp:       db "cp", 0
+name_mv:       db "mv", 0
+name_stat:     db "stat", 0
+name_chown:    db "chown", 0
 
 usage_msg:      db "rill: applet not found", 10
 usage_msg_len:  equ $ - usage_msg
@@ -98,6 +108,11 @@ applet_table:
     dq name_ln,       applet_ln_main
     dq name_readlink, applet_readlink_main
     dq name_chmod,    applet_chmod_main
+    dq name_ls,       applet_ls_main
+    dq name_cp,       applet_cp_main
+    dq name_mv,       applet_mv_main
+    dq name_stat,     applet_stat_main
+    dq name_chown,    applet_chown_main
     dq 0, 0
 
 ; ---------------------------------------------------------------------------

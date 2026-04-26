@@ -6,6 +6,7 @@ DEFAULT REL
 global parse_uint
 global parse_octal
 global format_uint
+global format_octal
 
 section .text
 
@@ -71,7 +72,9 @@ parse_octal:
     cmp     edx, 7
     ja      .done
 
-    test    rax, 0xE000000000000000
+    mov     r8, rax
+    shr     r8, 61                  ; if any of the top 3 bits are set,
+    test    r8, r8                  ; the next shl by 3 would lose them
     jnz     .overflow
     shl     rax, 3
     or      rax, rdx
@@ -118,6 +121,37 @@ format_uint:
     ; Move digits to the front of buf.
     mov     rax, r8
     sub     rax, r9                 ; rax = number of digits
+
+    push    rax
+    mov     rdi, rsi
+    mov     rsi, r9
+    mov     rcx, rax
+    rep     movsb
+    pop     rax
+    ret
+
+; size_t format_octal(uint64_t v /rdi/, char *buf /rsi/)
+;
+;   Writes the octal representation of v into buf (no NUL, no leading 0).
+;   Returns digit count. buf must hold at least 24 bytes (max u64 = 22
+;   octal digits).
+format_octal:
+    mov     rax, rdi
+    mov     ecx, 8
+    lea     r8, [rsi + 24]
+    mov     r9, r8
+
+.div_oct:
+    xor     edx, edx
+    div     rcx
+    add     dl, '0'
+    dec     r9
+    mov     [r9], dl
+    test    rax, rax
+    jnz     .div_oct
+
+    mov     rax, r8
+    sub     rax, r9
 
     push    rax
     mov     rdi, rsi
