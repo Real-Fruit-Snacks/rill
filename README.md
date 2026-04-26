@@ -13,6 +13,8 @@
 
 A BusyBox-style multi-call binary in pure x86_64 NASM assembly — **41 Unix utilities**, one ~108 KB static ELF, direct syscalls, no libc, no runtime. The assembly cousin to [jib](https://github.com/Real-Fruit-Snacks/jib) (Rust), [topsail](https://github.com/Real-Fruit-Snacks/topsail) (Go), and [mainsail](https://github.com/Real-Fruit-Snacks/mainsail) (Python).
 
+[Download Latest](https://github.com/Real-Fruit-Snacks/rill/releases/latest)
+&nbsp;·&nbsp;
 [GitHub Pages](https://real-fruit-snacks.github.io/rill/)
 &nbsp;·&nbsp;
 [Architecture](#architecture)
@@ -25,7 +27,17 @@ A BusyBox-style multi-call binary in pure x86_64 NASM assembly — **41 Unix uti
 
 ## Quick Start
 
-**Prerequisites:** NASM, GNU ld, GNU make, and bats (Linux, or WSL on Windows).
+**From a release** — no toolchain required (Linux x86_64):
+
+```bash
+curl -LO https://github.com/Real-Fruit-Snacks/rill/releases/latest/download/rill-linux-x64
+chmod +x rill-linux-x64
+mv rill-linux-x64 rill                  # the dispatcher matches argv[0] == "rill"
+./rill date
+ln -s rill ls && ./ls -la               # multi-call via symlink
+```
+
+**From source** — Linux with NASM, GNU ld, GNU make, and bats (or WSL on Windows):
 
 ```bash
 git clone https://github.com/Real-Fruit-Snacks/rill.git
@@ -40,7 +52,7 @@ make size        # prints the linked binary's size
 
 ```bash
 file build/rill
-# ELF 64-bit LSB executable, x86-64, statically linked, no section header
+# ELF 64-bit LSB executable, x86-64, statically linked
 
 ./build/rill true && echo ok        # subcommand dispatch
 ./build/ls -la                      # multi-call: argv[0] basename
