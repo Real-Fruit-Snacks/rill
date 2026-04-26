@@ -5,14 +5,15 @@ written in pure assembly with direct syscalls and no libc.
 
 ## Status
 
-**Phase 5 + polish complete.** 40 applets, 100456 bytes, 310 tests.
-Phases 0–5 all landed: dispatcher + runtime + trivial + file ops +
-text processing + process/system. The originally-deferred polish items
-have all landed too — `ls -l` now auto-sizes columns and emits a
-`total <N>` header, mtimes render in localtime via `/etc/localtime`
-(TZif v2/v3 with v1 fallback), `chown -h` is wired, `grep` understands
-basic regex (`. * ^ $ [...] [^...] \X`), and `sort` accepts `-k F[,G]`,
-`-t SEP`, and `-f`.
+**Phase 5 + polish complete; new applets landing.** 41 applets, 108016
+bytes, 329 tests. Phases 0–5 all landed: dispatcher + runtime + trivial
++ file ops + text processing + process/system. The originally-deferred
+polish items have all landed too — `ls -l` now auto-sizes columns and
+emits a `total <N>` header, mtimes render in localtime via
+`/etc/localtime` (TZif v2/v3 with v1 fallback), `chown -h` is wired,
+`grep` understands basic regex (`. * ^ $ [...] [^...] \X`), and `sort`
+accepts `-k F[,G]`, `-t SEP`, and `-f`. Phase 6 adds applets beyond the
+original 40 — first up: `find`.
 
 | Applet | Notes |
 |---|---|
@@ -57,6 +58,7 @@ basic regex (`. * ^ $ [...] [^...] \X`), and `sort` accepts `-k F[,G]`,
 | `kill`     | `-NUM`/`-NAME`/`-SIGNAME`; `-l` lists; default TERM |
 | `which`    | walks `$PATH`; falls back to a hardcoded default if `$PATH` unset |
 | `ps`       | reads `/proc`; PID + comm-name; no flags yet |
+| `find`     | recursive walk; tests `-name PAT` (glob), `-type FDLCBPS`, `-maxdepth N`, `-mindepth N`, `-empty`; actions `-print` (default), `-print0`; no `-exec`/operators yet |
 
 ## Build
 

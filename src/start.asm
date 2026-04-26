@@ -68,6 +68,7 @@ extern applet_date_main
 extern applet_kill_main
 extern applet_which_main
 extern applet_ps_main
+extern applet_find_main
 
 ; ---------------------------------------------------------------------------
 ; .rodata
@@ -115,6 +116,7 @@ name_date:     db "date", 0
 name_kill:     db "kill", 0
 name_which:    db "which", 0
 name_ps:       db "ps", 0
+name_find:     db "find", 0
 
 usage_msg:      db "rill: applet not found", 10
 usage_msg_len:  equ $ - usage_msg
@@ -164,6 +166,7 @@ applet_table:
     dq name_kill,     applet_kill_main
     dq name_which,    applet_which_main
     dq name_ps,       applet_ps_main
+    dq name_find,     applet_find_main
     dq 0, 0
 
 ; ---------------------------------------------------------------------------
