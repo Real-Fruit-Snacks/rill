@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>rill — Unix utilities in pure assembly</title>
+    <meta name="description" content="A BusyBox-style multi-call binary in pure x86_64 NASM assembly. 41 Unix utilities, ~108 KB static ELF, direct syscalls, no libc, no runtime. The assembly cousin to jib (Rust), topsail (Go), and mainsail (Python).">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext x='16' y='24' text-anchor='middle' font-family='Inter,sans-serif' font-size='24' font-weight='800' fill='%2394e2d5'%3ER%3C/text%3E%3C/svg%3E">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        :root{
+            /* Teal-leaning palette. accent1 is the brand color; accent2
+               is the lighter gradient endpoint; accentmid is the darker
+               stop for buttons. Same architecture as the family so the
+               components stay swappable. */
+            --accent1:#94e2d5;--accent2:#a6e3a1;--accentmid:#74c7ec;
+            --accentrgb:148,226,213;
+            --text:#cdd6f4;--sub1:#bac2de;--sub0:#a6adc8;
+            --ov2:#9399b2;--ov1:#7f849c;--ov0:#6c7086;
+            --sf2:#585b70;--sf1:#45475a;--sf0:#313244;
+            --base:#1e1e2e;--mantle:#181825;--crust:#11111b;
+            --green:#a6e3a1;--yellow:#f9e2af;--red:#f38ba8;
+            --peach:#fab387;--mauve:#cba6f7;--teal:#94e2d5;--pink:#f5c2e7;
+            --blue:#89b4fa;--lavender:#b4befe;--sky:#89dceb;
+        }
+        body{font-family:'Inter',system-ui,sans-serif;background:var(--crust);color:var(--text);line-height:1.7;overflow-x:hidden}
+        ::selection{background:rgba(var(--accentrgb),0.3);color:var(--text)}
+        .container{max-width:1140px;margin:0 auto;padding:0 28px}
+        code{font-family:'JetBrains Mono',monospace;background:var(--mantle);padding:2px 7px;border-radius:3px;font-size:.88em;color:var(--green)}
+
+        /* Nav */
+        .nav{position:fixed;top:0;left:0;right:0;height:56px;background:rgba(17,17,27,0.8);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-bottom:1px solid rgba(49,50,68,0.5);z-index:1000;display:flex;align-items:center;justify-content:center}
+        .nav-inner{max-width:1140px;width:100%;padding:0 28px;display:flex;align-items:center;justify-content:space-between}
+        .nav-logo{font-family:'Inter',sans-serif;font-size:16px;font-weight:700;color:var(--text);text-decoration:none}
+        .nav-logo .accent{color:var(--accent1);font-weight:800}
+        .nav-links{display:flex;align-items:center;gap:28px}
+        .nav-links a{font-size:13px;font-weight:500;color:var(--ov0);text-decoration:none;transition:color .2s}
+        .nav-links a:hover{color:var(--text)}
+        .nav-cta{background:linear-gradient(135deg,var(--accent1),var(--accentmid));color:var(--crust);padding:7px 18px;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;transition:box-shadow .2s,transform .2s}
+        .nav-cta:hover{box-shadow:0 0 20px rgba(var(--accentrgb),0.3);transform:translateY(-1px)}
+
+        /* Hero */
+        .hero{padding:140px 0 80px;text-align:center;position:relative}
+        .hero::before{content:'';position:absolute;top:60px;left:50%;transform:translateX(-50%);width:800px;height:400px;background:radial-gradient(ellipse,rgba(var(--accentrgb),0.08) 0%,transparent 60%);pointer-events:none}
+        .hero-logo{position:relative;max-width:600px;margin:0 auto 32px}
+        .hero-logo img{width:100%;height:auto}
+        .hero-tagline{position:relative;font-size:clamp(24px,3.5vw,38px);font-weight:700;line-height:1.2;margin-bottom:16px;background:linear-gradient(135deg,var(--accent1),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+        .hero-desc{position:relative;font-size:16px;color:var(--ov0);max-width:620px;margin:0 auto 32px}
+        .hero-desc a{color:var(--accent1);text-decoration:none}
+        .hero-desc a:hover{text-decoration:underline}
+        .hero-ctas{position:relative;display:flex;gap:12px;justify-content:center;margin-bottom:48px;flex-wrap:wrap}
+        .btn-primary{background:linear-gradient(135deg,var(--accent1),var(--accentmid));color:var(--crust);padding:12px 28px;border-radius:8px;font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;text-decoration:none;transition:box-shadow .2s,transform .2s}
+        .btn-primary:hover{box-shadow:0 0 24px rgba(var(--accentrgb),0.35);transform:translateY(-2px)}
+        .btn-secondary{background:var(--sf0);color:var(--text);padding:12px 28px;border-radius:8px;border:1px solid var(--sf1);font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:500;text-decoration:none;transition:all .2s}
+        .btn-secondary:hover{background:var(--sf1);border-color:var(--sf2)}
+
+        /* Terminal */
+        .terminal{position:relative;max-width:800px;margin:0 auto;background:var(--mantle);border:1px solid var(--sf0);border-radius:12px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.5),0 0 24px rgba(var(--accentrgb),0.06)}
+        .terminal-bar{background:var(--crust);padding:12px 16px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--sf0)}
+        .terminal-dot{width:12px;height:12px;border-radius:50%}
+        .terminal-dot:nth-child(1){background:var(--red)}
+        .terminal-dot:nth-child(2){background:var(--yellow)}
+        .terminal-dot:nth-child(3){background:var(--green)}
+        .terminal-label{flex:1;text-align:center;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ov0)}
+        .terminal-body{padding:24px;font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.9;text-align:left}
+        .terminal-body pre{margin:0;white-space:pre-wrap;word-wrap:break-word}
+        .t-g{color:var(--green)}.t-b{color:var(--accent1)}.t-m{color:var(--sub0)}.t-p{color:var(--peach)}.t-y{color:var(--yellow)}
+
+        /* Stats */
+        .stats{display:flex;justify-content:center;gap:40px;padding:60px 0;position:relative;flex-wrap:wrap}
+        .stat{text-align:center}
+        .stat-num{font-family:'JetBrains Mono',monospace;font-size:36px;font-weight:700;color:var(--accent1);line-height:1}
+        .stat-label{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--sf2);margin-top:6px;letter-spacing:2px;text-transform:uppercase}
+        .stat-div{width:1px;height:48px;background:var(--sf0);align-self:center}
+
+        /* Sections */
+        section{padding:80px 0}
+        .section-label{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;color:var(--accent1);letter-spacing:3px;text-transform:uppercase;margin-bottom:12px}
+        .section-title{font-size:clamp(28px,4vw,40px);font-weight:700;margin-bottom:12px;letter-spacing:-.02em}
+        .section-desc{font-size:15px;color:var(--ov0);margin-bottom:48px;max-width:600px}
+        .gradient-line{height:1px;background:linear-gradient(90deg,transparent,var(--accent1),var(--accent2),transparent);margin:0 auto;max-width:600px}
+
+        /* Bento */
+        .bento{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+        .bento-card{background:var(--mantle);border:1px solid var(--sf0);border-radius:12px;padding:28px;transition:all .25s;position:relative;overflow:hidden}
+        .bento-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--accent1),var(--accent2));opacity:0;transition:opacity .25s}
+        .bento-card:hover{transform:translateY(-3px);border-color:var(--sf1);box-shadow:0 12px 32px rgba(0,0,0,0.25),0 0 20px rgba(var(--accentrgb),0.06)}
+        .bento-card:hover::before{opacity:1}
+        .bento-hero{grid-column:span 2}
+        .bento-card h3{font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:600;color:var(--accent1);margin-bottom:8px}
+        .bento-card p{font-size:13.5px;color:var(--sub0);line-height:1.6}
+        .bento-card .mini-terminal{background:var(--crust);border-radius:8px;padding:14px;margin-top:14px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.8;text-align:left}
+        .bento-stat{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+        .bento-stat .big{font-family:'JetBrains Mono',monospace;font-size:42px;font-weight:700;color:var(--accent1)}
+        .bento-stat .label{font-size:12px;color:var(--sf2);margin-top:4px;letter-spacing:1px}
+
+        /* Pills */
+        .pill-group{margin-bottom:20px}
+        .pill-group-label{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ov0);letter-spacing:2px;text-transform:uppercase;margin-bottom:10px}
+        .pills{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
+        .pill{background:var(--mantle);border:1px solid;border-radius:20px;padding:8px 16px;font-family:'JetBrains Mono',monospace;font-size:12px;display:flex;align-items:center;gap:8px;transition:all .2s}
+        .pill:hover{background:var(--base);filter:brightness(1.25)}
+        .pill .gap{margin-left:auto;font-size:9px;opacity:.6;letter-spacing:1px}
+        .pill-group[data-accent="green"]   .pill-group-label,
+        .pill-group[data-accent="green"]   .pill{color:var(--green);border-color:rgba(166,227,161,.35)}
+        .pill-group[data-accent="peach"]   .pill-group-label,
+        .pill-group[data-accent="peach"]   .pill{color:var(--peach);border-color:rgba(250,179,135,.35)}
+        .pill-group[data-accent="teal"]    .pill-group-label,
+        .pill-group[data-accent="teal"]    .pill{color:var(--teal);border-color:rgba(148,226,213,.35)}
+        .pill-group[data-accent="mauve"]   .pill-group-label,
+        .pill-group[data-accent="mauve"]   .pill{color:var(--mauve);border-color:rgba(203,166,247,.35)}
+        .pill-group[data-accent="yellow"]  .pill-group-label,
+        .pill-group[data-accent="yellow"]  .pill{color:var(--yellow);border-color:rgba(249,226,175,.35)}
+        .pill-group[data-accent="pink"]    .pill-group-label,
+        .pill-group[data-accent="pink"]    .pill{color:var(--pink);border-color:rgba(245,194,231,.35)}
+
+        /* Architecture */
+        .arch-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+        .arch-card{background:var(--mantle);border:1px solid var(--sf0);border-radius:12px;padding:28px;transition:border-color .2s}
+        .arch-card:hover{border-color:var(--sf1)}
+        .arch-num{display:inline-flex;width:30px;height:30px;background:linear-gradient(135deg,var(--accent1),var(--accentmid));color:var(--crust);border-radius:50%;align-items:center;justify-content:center;font-weight:700;font-size:14px;margin-bottom:14px}
+        .arch-card h3{font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:600;color:var(--teal);margin-bottom:8px}
+        .arch-card p{font-size:13.5px;color:var(--sub0);line-height:1.6}
+
+        /* Two col */
+        .two-col{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+
+        /* Family card */
+        .family-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:20px}
+        .family-card{background:var(--mantle);border:1px solid var(--sf0);border-radius:12px;padding:22px;transition:all .25s}
+        .family-card:hover{transform:translateY(-2px);border-color:var(--sf1)}
+        .family-card h4{font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700;margin-bottom:6px}
+        .family-card .lang{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ov0);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:10px}
+        .family-card p{font-size:12.5px;color:var(--sub0);line-height:1.5}
+        .family-card a{color:inherit;text-decoration:none;display:block;height:100%}
+        .family-card.self h4{color:var(--accent1)}
+        .family-card.self{border-color:rgba(var(--accentrgb),.4)}
+        .family-card.peer h4{color:var(--sub1)}
+
+        /* Footer */
+        footer{padding:48px 0;margin-top:40px}
+        .footer-line{height:1px;background:linear-gradient(90deg,transparent,var(--accent1),var(--accent2),transparent);margin-bottom:48px}
+        .footer-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:32px}
+        .footer-grid h4{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent1);margin-bottom:14px;letter-spacing:1.5px;text-transform:uppercase}
+        .footer-grid ul{list-style:none}
+        .footer-grid li{margin-bottom:8px}
+        .footer-grid a{color:var(--ov0);text-decoration:none;font-size:13px;transition:color .2s}
+        .footer-grid a:hover{color:var(--text)}
+        .footer-grid p{font-size:13px;color:var(--ov0)}
+        .footer-bottom{margin-top:48px;padding-top:24px;border-top:1px solid var(--sf0);text-align:center;font-size:12px;color:var(--ov0)}
+        .footer-bottom a{color:var(--accent1);text-decoration:none}
+
+        /* Animation */
+        .animate{opacity:0;transform:translateY(20px);transition:opacity .8s,transform .8s}
+        .animate.visible{opacity:1;transform:translateY(0)}
+        .animate-scale{opacity:0;transform:scale(.96);transition:opacity .8s,transform .8s}
+        .animate-scale.visible{opacity:1;transform:scale(1)}
+
+        /* Responsive */
+        @media(max-width:960px){.bento{grid-template-columns:1fr 1fr}.bento-hero{grid-column:span 2}.two-col,.arch-grid{grid-template-columns:1fr}.footer-grid{grid-template-columns:repeat(2,1fr)}.family-grid{grid-template-columns:repeat(2,1fr)}.stats{flex-wrap:wrap;gap:24px}}
+        @media(max-width:600px){.container{padding:0 16px}.hero{padding:100px 0 48px}.bento{grid-template-columns:1fr}.bento-hero{grid-column:span 1}.stats{gap:16px}.stat-div{display:none}.nav-links a:not(.nav-cta){display:none}.footer-grid{grid-template-columns:1fr}.family-grid{grid-template-columns:1fr}.pills{grid-template-columns:repeat(auto-fill,minmax(120px,1fr))}}
+
+        a:focus-visible{outline:2px solid var(--accent1);outline-offset:2px}
+    </style>
+</head>
+<body>
+
+    <nav class="nav"><div class="nav-inner">
+        <a href="#" class="nav-logo"><span class="accent">~/</span>rill</a>
+        <div class="nav-links">
+            <a href="#features">Features</a>
+            <a href="#applets">Applets</a>
+            <a href="#architecture">Architecture</a>
+            <a href="#family">Family</a>
+            <a href="https://github.com/Real-Fruit-Snacks/rill">GitHub</a>
+            <a href="https://github.com/Real-Fruit-Snacks/rill" class="nav-cta">Source</a>
+        </div>
+    </div></nav>
+
+    <section class="hero">
+        <div class="container">
+            <div class="hero-logo animate"><img src="assets/logo-dark.svg" alt="rill"></div>
+            <p class="hero-tagline animate" style="transition-delay:.1s">Unix utilities, in pure assembly.</p>
+            <p class="hero-desc animate" style="transition-delay:.2s">A BusyBox-style multi-call binary in pure x86_64 NASM assembly — 41 Unix utilities, ~108 KB static ELF, direct syscalls, no libc, no runtime. The assembly cousin to <a href="https://github.com/Real-Fruit-Snacks/jib">jib</a> (Rust), <a href="https://github.com/Real-Fruit-Snacks/topsail">topsail</a> (Go), and <a href="https://github.com/Real-Fruit-Snacks/mainsail">mainsail</a> (Python).</p>
+            <div class="hero-ctas animate" style="transition-delay:.3s">
+                <a href="https://github.com/Real-Fruit-Snacks/rill" class="btn-primary">View Source</a>
+                <a href="#applets" class="btn-secondary">Browse Applets</a>
+            </div>
+            <div class="terminal animate-scale" style="transition-delay:.4s">
+                <div class="terminal-bar">
+                    <span class="terminal-dot"></span><span class="terminal-dot"></span><span class="terminal-dot"></span>
+                    <span class="terminal-label">rill</span>
+                </div>
+                <div class="terminal-body"><pre><span class="t-g">$</span> rill find . -name '*.asm' -type f | rill wc -l
+<span class="t-b">49</span>
+
+<span class="t-g">$</span> rill ls -la build/ | rill grep -E '^l'
+<span class="t-m">lrwxrwxrwx 1 west west 4 Apr 26 12:22 cat -&gt; rill
+lrwxrwxrwx 1 west west 4 Apr 26 12:22 ls  -&gt; rill</span>
+
+<span class="t-g">$</span> rill sort -k 2 -n -t , data.csv | rill head -3
+<span class="t-y">apple,1
+banana,2
+cherry,3</span>
+
+<span class="t-g">$</span> file build/rill
+<span class="t-b">build/rill: ELF 64-bit LSB executable, x86-64, statically linked</span></pre></div>
+            </div>
+        </div>
+    </section>
+
+    <div class="container">
+        <div class="stats animate">
+            <div class="stat"><div class="stat-num" data-target="41">0</div><div class="stat-label">Applets</div></div>
+            <div class="stat-div"></div>
+            <div class="stat"><div class="stat-num" data-target="329">0</div><div class="stat-label">Tests Passing</div></div>
+            <div class="stat-div"></div>
+            <div class="stat"><div class="stat-num" data-target="108" data-suffix="KB">0</div><div class="stat-label">Static ELF</div></div>
+            <div class="stat-div"></div>
+            <div class="stat"><div class="stat-num" data-target="0" data-suffix=" libc">0</div><div class="stat-label">Dependencies</div></div>
+            <div class="stat-div"></div>
+            <div class="stat"><div class="stat-num" data-target="100" data-suffix="%">0</div><div class="stat-label">NASM</div></div>
+        </div>
+        <div class="gradient-line"></div>
+    </div>
+
+    <section id="features">
+        <div class="container">
+            <div class="section-label animate">FEATURES</div>
+            <h2 class="section-title animate" style="transition-delay:.08s">Every layer, hand-written</h2>
+            <p class="section-desc animate" style="transition-delay:.16s">Direct syscalls. Zero libc. A static ELF the kernel can map and run. The same multi-call shape as <code>jib</code> / <code>topsail</code> / <code>mainsail</code> — different substrate.</p>
+
+            <div class="bento">
+                <div class="bento-card bento-hero animate" style="transition-delay:.1s">
+                    <h3>One Binary, 41 Utilities</h3>
+                    <p>Every common shell tool dispatched through a single executable — file ops, text processing, system info, process inspection, a recursive tree walker. Symlink it as <code>cat</code>, <code>ls</code>, <code>grep</code> and the multi-call dispatcher takes over from <code>argv[0]</code>.</p>
+                    <div class="mini-terminal"><span class="t-g">$</span> ln -s rill cat &amp;&amp; ./cat README.md<br><span class="t-g">$</span> ./rill grep -i '^h' README.md</div>
+                </div>
+                <div class="bento-card bento-stat animate" style="transition-delay:.18s">
+                    <div class="big">108<span style="font-size:24px">KB</span></div>
+                    <div class="label">Static ELF</div>
+                </div>
+                <div class="bento-card animate" style="transition-delay:.2s">
+                    <h3 style="color:var(--mauve)">No libc, No Runtime</h3>
+                    <p>Every operation is a <code>syscall</code> to the kernel. Buffers live in <code>.bss</code> (lazy-paged) or on the stack. The whole binary is two <code>PT_LOAD</code> segments — text r-x, data rw-.</p>
+                </div>
+                <div class="bento-card animate" style="transition-delay:.28s">
+                    <h3 style="color:var(--green)">Real Applets</h3>
+                    <p><code>find</code> with glob + type + depth limits. <code>grep</code> with BRE regex (<code>. * ^ $ [...]</code>). <code>sort</code> with <code>-k F[,G]</code>, custom delimiter, case-fold. <code>ls -l</code> with auto-sized columns and localtime mtime.</p>
+                </div>
+                <div class="bento-card animate" style="transition-delay:.36s">
+                    <h3 style="color:var(--peach)">/etc/localtime Aware</h3>
+                    <p><code>core/tz.asm</code> parses <code>/etc/localtime</code> as a TZif v2/v3 file, finds the offset for now via linear scan, caches it. <code>ls -l</code> and <code>stat</code> render mtimes in local wall time.</p>
+                </div>
+                <div class="bento-card bento-stat animate" style="transition-delay:.1s">
+                    <div class="big" style="color:var(--teal)">329</div>
+                    <div class="label">Bats Cases</div>
+                </div>
+                <div class="bento-card bento-hero animate" style="transition-delay:.18s">
+                    <h3 style="color:var(--red)">Verified Against Coreutils</h3>
+                    <p>The <code>tests/integration</code> bats harness diffs our output against <code>/usr/bin/&lt;applet&gt;</code> byte-for-byte where the comparison is deterministic, and checks exit codes everywhere else. CI runs the same harness on Ubuntu against every push.</p>
+                    <div class="mini-terminal"><span class="t-g">$</span> make test<br><span class="t-b">329 tests, 329 passed, 0 failed</span></div>
+                </div>
+                <div class="bento-card animate" style="transition-delay:.26s">
+                    <h3 style="color:var(--yellow)">Hackable</h3>
+                    <p>One <code>.asm</code> file per applet — most are 50–250 lines. Add a new one by dropping <code>src/applets/&lt;name&gt;.asm</code> exposing <code>applet_&lt;name&gt;_main</code>, plus an entry in the dispatch table. The Makefile auto-globs.</p>
+                </div>
+                <div class="bento-card animate" style="transition-delay:.34s">
+                    <h3 style="color:var(--accent1)">ABI-Correct</h3>
+                    <p>System V AMD64 throughout. Callee-saved (<code>rbx</code>, <code>rbp</code>, <code>r12</code>–<code>r15</code>) carry state across nested calls; caller-saved scratch (<code>rax</code>, <code>rcx</code>, <code>rdx</code>, <code>r8</code>–<code>r11</code>) is push/popped explicitly. Stack lands at 0 mod 16 at every inner call.</p>
+                </div>
+                <div class="bento-card animate" style="transition-delay:.42s">
+                    <h3 style="color:var(--mauve)">Built-in Regex</h3>
+                    <p><code>core/regex.asm</code> — a recursive backtracker covering <code>.</code>, <code>*</code>, <code>^</code>, <code>$</code>, <code>[...]</code>, <code>[^...]</code> with literal ranges and <code>\X</code> escapes. Drives <code>grep</code>'s default mode; <code>-F</code> bypasses for fixed strings.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="applets" style="background:var(--mantle)">
+        <div class="container">
+            <div class="section-label animate">APPLETS</div>
+            <h2 class="section-title animate" style="transition-delay:.08s">All 41, organized</h2>
+            <p class="section-desc animate" style="transition-delay:.16s">Each applet implements the common POSIX flags. See the <a href="https://github.com/Real-Fruit-Snacks/rill#supported-applets" style="color:var(--accent1)">README</a> for per-applet flag coverage and known gaps.</p>
+
+            <div class="pill-group animate" data-accent="green">
+                <div class="pill-group-label">File operations</div>
+                <div class="pills">
+                    <div class="pill">ls</div>
+                    <div class="pill">cp</div>
+                    <div class="pill">mv</div>
+                    <div class="pill">rm</div>
+                    <div class="pill">mkdir</div>
+                    <div class="pill">rmdir</div>
+                    <div class="pill">touch</div>
+                    <div class="pill">ln</div>
+                    <div class="pill">readlink</div>
+                    <div class="pill">chmod</div>
+                    <div class="pill">chown</div>
+                    <div class="pill">stat</div>
+                    <div class="pill">find</div>
+                </div>
+            </div>
+
+            <div class="pill-group animate" style="transition-delay:.06s" data-accent="peach">
+                <div class="pill-group-label">Text processing</div>
+                <div class="pills">
+                    <div class="pill">cat</div>
+                    <div class="pill">wc</div>
+                    <div class="pill">head</div>
+                    <div class="pill">tail</div>
+                    <div class="pill">cut</div>
+                    <div class="pill">tr</div>
+                    <div class="pill">sort</div>
+                    <div class="pill">uniq</div>
+                    <div class="pill">grep</div>
+                    <div class="pill">tee</div>
+                </div>
+            </div>
+
+            <div class="pill-group animate" style="transition-delay:.09s" data-accent="teal">
+                <div class="pill-group-label">Paths &amp; lookup</div>
+                <div class="pills">
+                    <div class="pill">pwd</div>
+                    <div class="pill">basename</div>
+                    <div class="pill">dirname</div>
+                    <div class="pill">which</div>
+                </div>
+            </div>
+
+            <div class="pill-group animate" style="transition-delay:.12s" data-accent="mauve">
+                <div class="pill-group-label">System &amp; identity</div>
+                <div class="pills">
+                    <div class="pill">whoami</div>
+                    <div class="pill">id</div>
+                    <div class="pill">uname</div>
+                    <div class="pill">hostname</div>
+                    <div class="pill">date</div>
+                    <div class="pill">env</div>
+                    <div class="pill">printenv</div>
+                </div>
+            </div>
+
+            <div class="pill-group animate" style="transition-delay:.15s" data-accent="yellow">
+                <div class="pill-group-label">Process</div>
+                <div class="pills">
+                    <div class="pill">ps</div>
+                    <div class="pill">kill</div>
+                    <div class="pill">sleep</div>
+                </div>
+            </div>
+
+            <div class="pill-group animate" style="transition-delay:.18s" data-accent="pink">
+                <div class="pill-group-label">Control &amp; misc</div>
+                <div class="pills">
+                    <div class="pill">true</div>
+                    <div class="pill">false</div>
+                    <div class="pill">echo</div>
+                    <div class="pill">yes</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="architecture">
+        <div class="container">
+            <div class="section-label animate">ARCHITECTURE</div>
+            <h2 class="section-title animate" style="transition-delay:.08s">Three-layer dispatch</h2>
+            <p class="section-desc animate" style="transition-delay:.16s">Same shape as the family — clean separation between the kernel-facing entry, the basename dispatcher, and the per-applet implementations. Adding an applet means dropping one file and one extern.</p>
+            <div class="arch-grid">
+                <div class="arch-card animate" style="transition-delay:.1s">
+                    <div class="arch-num">1</div>
+                    <h3>Entry</h3>
+                    <p><code>_start</code> in <code>src/start.asm</code> reads <code>argc</code> and <code>argv</code> from the kernel-prepared stack and tail-calls <code>dispatch</code>. The exit code goes to <code>SYS_exit_group</code>.</p>
+                </div>
+                <div class="arch-card animate" style="transition-delay:.2s">
+                    <div class="arch-num">2</div>
+                    <h3>Dispatch</h3>
+                    <p><code>dispatch</code> picks an applet by <code>basename(argv[0])</code> against the applet table. If <code>argv[0]</code> is <code>rill</code>, it shifts <code>argv</code> and retries — so <code>rill ls</code> and a <code>ls</code> symlink dispatch identically.</p>
+                </div>
+                <div class="arch-card animate" style="transition-delay:.3s">
+                    <div class="arch-num">3</div>
+                    <h3>Applets</h3>
+                    <p>Each <code>src/applets/&lt;name&gt;.asm</code> exposes <code>applet_&lt;name&gt;_main</code>. Receives <code>argc</code> in <code>edi</code>, <code>argv</code> in <code>rsi</code>; returns its exit code in <code>rax</code>. Reads via <code>SYS_read</code>, writes via <code>core/io.asm</code>'s <code>write_all</code>.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section style="background:var(--mantle)" id="family">
+        <div class="container">
+            <div class="section-label animate">FAMILY</div>
+            <h2 class="section-title animate" style="transition-delay:.08s">Same shape, four substrates</h2>
+            <p class="section-desc animate" style="transition-delay:.16s">The multi-call BusyBox idea translated into four implementations that share the same naming, the same applet surface, and the same architecture skeleton. Pick the one whose tradeoffs fit your environment.</p>
+
+            <div class="family-grid">
+                <div class="family-card peer animate" style="transition-delay:.1s">
+                    <a href="https://github.com/Real-Fruit-Snacks/mainsail">
+                        <h4>mainsail</h4>
+                        <div class="lang">Python · ~6 MB</div>
+                        <p>The reference implementation. 73 applets. Cross-platform PyInstaller binaries; the parity yardstick the others measure against.</p>
+                    </a>
+                </div>
+                <div class="family-card peer animate" style="transition-delay:.18s">
+                    <a href="https://github.com/Real-Fruit-Snacks/jib">
+                        <h4>jib</h4>
+                        <div class="lang">Rust · ~2 MB</div>
+                        <p>Ahead-of-time compiled, single-binary, native on Linux/macOS/Windows. 78 applets with verified parity against mainsail.</p>
+                    </a>
+                </div>
+                <div class="family-card peer animate" style="transition-delay:.26s">
+                    <a href="https://github.com/Real-Fruit-Snacks/topsail">
+                        <h4>topsail</h4>
+                        <div class="lang">Go · ~3 MB</div>
+                        <p>Statically-linked Go build with 84 applets. Cross-platform; the easy entry point if you already have a Go toolchain.</p>
+                    </a>
+                </div>
+                <div class="family-card self animate" style="transition-delay:.34s">
+                    <a href="https://github.com/Real-Fruit-Snacks/rill">
+                        <h4>rill</h4>
+                        <div class="lang">Assembly · ~108 KB</div>
+                        <p>This one. Pure x86_64 NASM, direct syscalls, no libc. Linux-only, smallest binary in the family by an order of magnitude.</p>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section>
+        <div class="container">
+            <div class="section-label animate">GETTING STARTED</div>
+            <h2 class="section-title animate" style="transition-delay:.08s">Build and run</h2>
+            <p class="section-desc animate" style="transition-delay:.16s">Linux with NASM, GNU ld, GNU make, and bats — or WSL on Windows. No Cargo, no go.mod, no requirements.txt. <code>make</code> and you're done.</p>
+            <div class="two-col">
+                <div class="terminal animate" style="transition-delay:.1s">
+                    <div class="terminal-bar"><span class="terminal-dot"></span><span class="terminal-dot"></span><span class="terminal-dot"></span><span class="terminal-label">build.sh</span></div>
+                    <div class="terminal-body"><pre><span class="t-m"># Prereqs (Debian / Ubuntu)</span>
+<span class="t-g">$</span> sudo apt install nasm binutils make bats
+
+<span class="t-m"># Clone and build</span>
+<span class="t-g">$</span> git clone https://github.com/Real-Fruit-Snacks/rill
+<span class="t-g">$</span> cd rill
+<span class="t-g">$</span> make
+<span class="t-b">→ build/rill (~108 KB static ELF)</span>
+
+<span class="t-m"># Wire up multi-call dispatch</span>
+<span class="t-g">$</span> make symlinks
+<span class="t-b">→ build/cat -&gt; rill, build/ls -&gt; rill, …</span>
+
+<span class="t-m"># Run the bats suite</span>
+<span class="t-g">$</span> make test
+<span class="t-b">329 tests, 329 passed, 0 failed</span></pre></div>
+                </div>
+                <div class="terminal animate" style="transition-delay:.25s">
+                    <div class="terminal-bar"><span class="terminal-dot"></span><span class="terminal-dot"></span><span class="terminal-dot"></span><span class="terminal-label">usage.sh</span></div>
+                    <div class="terminal-body"><pre><span class="t-m"># Subcommand dispatch</span>
+<span class="t-g">$</span> ./build/rill date
+<span class="t-b">Sun Apr 26 17:42:11 UTC 2026</span>
+
+<span class="t-m"># Multi-call via argv[0]</span>
+<span class="t-g">$</span> ./build/ls -la /etc | ./build/grep '^d'
+<span class="t-m">drwxr-xr-x  3 root root  4096 Apr 26 12:18 ssh
+drwxr-xr-x  4 root root  4096 Apr 26 12:18 systemd</span>
+
+<span class="t-m"># find with full glob support</span>
+<span class="t-g">$</span> ./build/find . -name '*.asm' -type f
+<span class="t-m">./src/start.asm
+./src/core/regex.asm
+./src/applets/find.asm
+…</span>
+
+<span class="t-m"># grep BRE regex</span>
+<span class="t-g">$</span> echo abc123 | ./build/grep '[0-9]'
+<span class="t-y">abc123</span></pre></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <div class="container">
+            <div class="footer-line"></div>
+            <div class="footer-grid">
+                <div>
+                    <h4>Documentation</h4>
+                    <ul>
+                        <li><a href="https://github.com/Real-Fruit-Snacks/rill#quick-start">Quick Start</a></li>
+                        <li><a href="https://github.com/Real-Fruit-Snacks/rill#features">Features</a></li>
+                        <li><a href="https://github.com/Real-Fruit-Snacks/rill#supported-applets">Applets</a></li>
+                        <li><a href="https://github.com/Real-Fruit-Snacks/rill#architecture">Architecture</a></li>
+                        <li><a href="https://github.com/Real-Fruit-Snacks/rill#abi-notes">ABI Notes</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <h4>Resources</h4>
+                    <ul>
+                        <li><a href="https://github.com/Real-Fruit-Snacks/rill">GitHub</a></li>
+                        <li><a href="https://github.com/Real-Fruit-Snacks/rill/issues">Report Issue</a></li>
+                        <li><a href="https://github.com/Real-Fruit-Snacks/rill/actions">CI Status</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <h4>Family</h4>
+                    <ul>
+                        <li><a href="https://github.com/Real-Fruit-Snacks/jib">jib (Rust)</a></li>
+                        <li><a href="https://github.com/Real-Fruit-Snacks/topsail">topsail (Go)</a></li>
+                        <li><a href="https://github.com/Real-Fruit-Snacks/mainsail">mainsail (Python)</a></li>
+                        <li><a href="https://github.com/Real-Fruit-Snacks">View All →</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <h4>License</h4>
+                    <p>MIT License<br>Copyright © 2026<br>Real-Fruit-Snacks</p>
+                </div>
+            </div>
+            <div class="footer-bottom">The assembly cousin to <a href="https://github.com/Real-Fruit-Snacks/jib">jib</a> · <a href="https://github.com/Real-Fruit-Snacks/topsail">topsail</a> · <a href="https://github.com/Real-Fruit-Snacks/mainsail">mainsail</a> · Part of the water-themed toolkit</div>
+        </div>
+    </footer>
+
+    <script>
+    const obs=new IntersectionObserver(e=>{e.forEach(el=>{if(el.isIntersecting){el.target.classList.add('visible');obs.unobserve(el.target)}})},{threshold:.1,rootMargin:'0px 0px -50px 0px'});
+    document.querySelectorAll('.animate,.animate-scale').forEach(el=>obs.observe(el));
+
+    function countUp(el){const t=parseInt(el.dataset.target),s=el.dataset.suffix||'',p=el.dataset.prefix||'',d=1500,st=performance.now();function u(n){const pr=Math.min((n-st)/d,1),e=1-Math.pow(1-pr,3);el.textContent=p+Math.floor(t*e)+s;if(pr<1)requestAnimationFrame(u)}requestAnimationFrame(u)}
+    const sobs=new IntersectionObserver(e=>{e.forEach(el=>{if(el.isIntersecting){countUp(el.target);sobs.unobserve(el.target)}})},{threshold:.5});
+    document.querySelectorAll('.stat-num').forEach(el=>sobs.observe(el));
+
+    window.addEventListener('scroll',()=>{document.querySelector('.nav').style.borderBottomColor=window.scrollY>20?'rgba(49,50,68,0.8)':'rgba(49,50,68,0.3)'});
+    </script>
+</body>
+</html>
