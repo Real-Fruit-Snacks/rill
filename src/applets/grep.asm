@@ -1,17 +1,21 @@
-; grep.asm — search for a literal pattern in input.
+; grep.asm — search for a pattern in input.
 ;
-;   grep [-i] [-v] [-n] [-c] [-F] PATTERN [FILE...]
+;   grep [-iEvncF] [-G] PATTERN [FILE...]
 ;
-; v1 supports:
-;   -F  fixed string (the default in this build — see below)
-;   -i  case-insensitive (ASCII)
+;   -F  fixed string: PATTERN is literal text, no metacharacters
+;   -G  basic regex (the default; accepted for symmetry with -F/-E)
+;   -E  treated as -G for now (no ERE-only constructs are honored)
+;   -i  case-insensitive (ASCII fold)
 ;   -v  invert match
 ;   -n  prefix matching lines with their line number
 ;   -c  print match count instead of lines
 ;
-; This grep does NOT yet support regular expressions — the PATTERN is
-; always a literal string (as if -F were always on). Adding a BRE/ERE
-; engine is its own change. -F is accepted as a no-op for compatibility.
+; The default mode is BRE (basic regular expression) supplied by
+; core/regex.asm. The supported subset is:  .  *  ^  $  [...]  [^...]
+; with ranges and \X-escapes. Constructs we don't implement (alternation,
+; grouping, \{n,m\}, \+, \?) cause the matcher to treat their
+; metacharacters as literals — wrong for most users, so reach for -F if
+; the pattern is meant to be a fixed string.
 ;
 ; Multi-file invocation prefixes each match line with "FILE:". Single-file
 ; or stdin invocation does not. Exit code follows coreutils: 0 if any
@@ -31,6 +35,7 @@ extern write_all
 extern write_cstr
 extern putc
 extern perror_path
+extern regex_search
 
 global applet_grep_main
 
@@ -57,6 +62,7 @@ grep_flag_i:   resb 1
 grep_flag_v:   resb 1
 grep_flag_n:   resb 1
 grep_flag_c:   resb 1
+grep_flag_F:   resb 1               ; fixed string mode; default is BRE regex
 grep_print_name: resb 1             ; 1 if multi-file (prefix lines with FILE:)
 grep_any_match:  resb 1             ; sticky: any line matched anywhere
 
@@ -97,6 +103,7 @@ applet_grep_main:
     mov     byte [rel grep_flag_v], 0
     mov     byte [rel grep_flag_n], 0
     mov     byte [rel grep_flag_c], 0
+    mov     byte [rel grep_flag_F], 0
     mov     byte [rel grep_print_name], 0
     mov     byte [rel grep_any_match], 0
 
@@ -125,6 +132,10 @@ applet_grep_main:
     je      .set_c
     cmp     al, 'F'
     je      .set_F
+    cmp     al, 'G'
+    je      .set_G
+    cmp     al, 'E'
+    je      .set_E
     jmp     .pattern_at             ; unknown char → treat full arg as the
                                     ; pattern (lets users grep "-foo").
 
@@ -140,7 +151,15 @@ applet_grep_main:
 .set_c: mov byte [rel grep_flag_c], 1
         inc rdi
         jmp .flag_char
-.set_F: inc rdi
+.set_F: mov byte [rel grep_flag_F], 1
+        inc rdi
+        jmp .flag_char
+.set_G: mov byte [rel grep_flag_F], 0
+        inc rdi
+        jmp .flag_char
+.set_E: ; ERE: treated as BRE for now (no extended-only construct is honored).
+        mov byte [rel grep_flag_F], 0
+        inc rdi
         jmp .flag_char
 
 .next_arg:
@@ -436,6 +455,11 @@ read_line:
 
 ; ---------------------------------------------------------------------------
 ; line_matches() -> rax (1 if pattern found in line, 0 otherwise)
+;
+; Empty pattern matches every line, matching grep(1). For -i we lowercase
+; the line into grep_lower; the pattern is already lowercased at startup.
+; The actual decision is then either a literal substring scan (-F) or a
+; BRE regex search (default).
 line_matches:
     push    rbx
     push    rbp
@@ -445,17 +469,52 @@ line_matches:
     test    rdi, rdi
     jz      .yes                    ; empty pattern matches every line
 
-    cmp     byte [rel grep_flag_i], 0
-    jne     .case_insensitive
-
-    ; Naive substring search of grep_line for grep_pattern.
+    ; Determine which target buffer the matchers will see: grep_line for
+    ; case-sensitive, grep_lower (computed below) for -i.
     lea     rbx, [rel grep_line]
+    cmp     byte [rel grep_flag_i], 0
+    je      .have_target
+
+    lea     rsi, [rel grep_line]
+    lea     rdi, [rel grep_lower]
+.lower_copy:
+    movzx   eax, byte [rsi]
+    test    eax, eax
+    jz      .lower_done
+    cmp     eax, 'A'
+    jb      .lower_keep
+    cmp     eax, 'Z'
+    ja      .lower_keep
+    add     eax, 'a' - 'A'
+.lower_keep:
+    mov     [rdi], al
+    inc     rsi
+    inc     rdi
+    jmp     .lower_copy
+.lower_done:
+    mov     byte [rdi], 0
+    lea     rbx, [rel grep_lower]
+
+.have_target:
+    cmp     byte [rel grep_flag_F], 0
+    jne     .literal
+
+    ; Regex mode.
+    mov     rdi, rbp
+    mov     rsi, rbx
+    call    regex_search
+    test    eax, eax
+    jnz     .yes
+    jmp     .no
+
+.literal:
+    ; Naive substring scan: walk windows of pat_len bytes through target.
     mov     rcx, [rel grep_line_len]
+    mov     rdi, [rel grep_pattern_len]
     cmp     rcx, rdi
     jl      .no
     sub     rcx, rdi
-    inc     rcx                     ; window count = line_len - pat_len + 1
-
+    inc     rcx                     ; window count
 .scan:
     test    rcx, rcx
     jz      .no
@@ -468,49 +527,6 @@ line_matches:
     inc     rbx
     dec     rcx
     jmp     .scan
-
-.case_insensitive:
-    ; Lowercase grep_line into grep_lower, then naive search vs the
-    ; pre-lowercased pattern (which lives at grep_pattern).
-    lea     rsi, [rel grep_line]
-    lea     rdi, [rel grep_lower]
-    xor     ecx, ecx
-.lower_copy:
-    movzx   eax, byte [rsi + rcx]
-    test    eax, eax
-    jz      .lower_done
-    cmp     eax, 'A'
-    jb      .lower_keep
-    cmp     eax, 'Z'
-    ja      .lower_keep
-    add     eax, 'a' - 'A'
-.lower_keep:
-    mov     [rdi + rcx], al
-    inc     rcx
-    jmp     .lower_copy
-.lower_done:
-    mov     byte [rdi + rcx], 0
-
-    lea     rbx, [rel grep_lower]
-    mov     rcx, [rel grep_line_len]
-    mov     rdi, [rel grep_pattern_len]
-    cmp     rcx, rdi
-    jl      .no
-    sub     rcx, rdi
-    inc     rcx
-
-.iscan:
-    test    rcx, rcx
-    jz      .no
-    mov     rdi, rbx
-    mov     rsi, rbp
-    mov     rdx, [rel grep_pattern_len]
-    call    bytes_eq
-    test    eax, eax
-    jnz     .yes
-    inc     rbx
-    dec     rcx
-    jmp     .iscan
 
 .no:
     xor     eax, eax

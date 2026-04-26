@@ -5,13 +5,14 @@ written in pure assembly with direct syscalls and no libc.
 
 ## Status
 
-**Phase 5 complete.** 40 applets, 91176 bytes, 284 tests. Phases 0–5
-all landed: dispatcher + runtime + trivial + file ops + text processing
-+ process/system.
-
-Polish items still deferred: localtime mtime, auto-sized `ls -l`
-columns, `total <N>` header, `chown -h`, regex in `grep`,
-`sort -k`/`-t`/`-f`.
+**Phase 5 + polish complete.** 40 applets, 100456 bytes, 310 tests.
+Phases 0–5 all landed: dispatcher + runtime + trivial + file ops +
+text processing + process/system. The originally-deferred polish items
+have all landed too — `ls -l` now auto-sizes columns and emits a
+`total <N>` header, mtimes render in localtime via `/etc/localtime`
+(TZif v2/v3 with v1 fallback), `chown -h` is wired, `grep` understands
+basic regex (`. * ^ $ [...] [^...] \X`), and `sort` accepts `-k F[,G]`,
+`-t SEP`, and `-f`.
 
 | Applet | Notes |
 |---|---|
@@ -33,12 +34,12 @@ columns, `total <N>` header, `chown -h`, regex in `grep`,
 | `ln`       | hard and `-s` symlink; `-f` overwrites; two-operand form only |
 | `readlink` | basic; no `-f/-e/-m` canonicalization yet |
 | `chmod`    | octal and symbolic modes (`u/g/o/a` × `+/-/=` × `r/w/x`); no `s/t` perms or `-R` yet |
-| `ls`       | sorted names; `-a`, `-l` (resolves uid/gid via `/etc/passwd`, fixed col widths, UTC mtime, no `total` line yet); no `-R/-F/-h` |
+| `ls`       | sorted names; `-a`, `-l` (resolves uid/gid via `/etc/passwd`, auto-sized columns, localtime mtime via `/etc/localtime`, `total <N>` header); no `-R/-F/-h` |
 | `rm`       | `-r`/`-R` recursive (via in-place path-buffer walk), `-f` ignores missing |
 | `cp`       | `-r`/`-R` recursive (preserves symlinks); preserves source mode bits; no `-p/-i` |
 | `mv`       | same-filesystem rename only; cross-device move surfaced as a clear error |
-| `stat`     | key:value summary; resolves uid/gid names; mtime as `Mon DD HH:MM` (UTC) |
-| `chown`    | numeric or named `USER[:GROUP]` / `:GROUP`; `-R` recursive (lchown — no symlink follow) |
+| `stat`     | key:value summary; resolves uid/gid names; mtime as `Mon DD HH:MM` (localtime) |
+| `chown`    | numeric or named `USER[:GROUP]` / `:GROUP`; `-R` recursive (lchown — no symlink follow); `-h` keeps top-level operand a symlink (lchown vs chown) |
 | `tee`      | `-a` appends; named-file failures don't abort other outputs; stdout failure aborts |
 | `wc`       | `-l` / `-w` / `-c` columns; multi-file `total` row; bytes-not-chars (no `-m` yet) |
 | `head`     | `-n N` / `-nN` / `-c N` / `-cN`; `==> NAME <==` headers between files |
@@ -46,8 +47,8 @@ columns, `total <N>` header, `chown -h`, regex in `grep`,
 | `cut`      | `-c LIST` / `-b LIST` / `-d DELIM -f LIST`; ranges (`N-M`, `N-`, `-M`); inline forms (`-cLIST`, `-d,`) |
 | `tr`       | translate / `-d` delete / `-s` squeeze; literal + ranges + escapes (`\n` `\t` `\r` `\f` `\v` `\a` `\b` `\\` `\NNN`) |
 | `uniq`     | `-c` count, `-d` dups only, `-u` uniques only; lines truncated at 8 KB |
-| `sort`     | `-r`/`-n`/`-u`; in-memory quicksort (16 MB input cap, 256 K lines); no `-k`/`-t`/`-f` yet |
-| `grep`     | literal pattern (no regex yet — `-F` is the default); `-i`/`-v`/`-n`/`-c`; multi-file `FILE:` prefixes |
+| `sort`     | `-r`/`-n`/`-u`/`-f`; `-k F[,G]`; `-t SEP`; in-memory quicksort (16 MB input cap, 256 K lines) |
+| `grep`     | BRE regex (`. * ^ $ [...] [^...] \X`); `-F` for fixed-string; `-i`/`-v`/`-n`/`-c`; multi-file `FILE:` prefixes |
 | `whoami`   | uid → name via `/etc/passwd` (numeric fallback) |
 | `id`       | full form, `-u`/`-g`/`-un`/`-gn` |
 | `uname`    | `-a`/`-s`/`-n`/`-r`/`-v`/`-m`; combined short flags |
