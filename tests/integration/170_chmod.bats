@@ -53,3 +53,51 @@ teardown() {
     [ "$status" -eq 1 ]
     [[ "$output" == *"missing operand"* ]]
 }
+
+@test "chmod u+x adds execute for user" {
+    touch "$TMPDIR/f"
+    /bin/chmod 0644 "$TMPDIR/f"
+    applet chmod u+x "$TMPDIR/f"
+    [ "$(stat -c %a "$TMPDIR/f")" = "744" ]
+}
+
+@test "chmod go-w clears write for group and other" {
+    touch "$TMPDIR/f"
+    /bin/chmod 0666 "$TMPDIR/f"
+    applet chmod go-w "$TMPDIR/f"
+    [ "$(stat -c %a "$TMPDIR/f")" = "644" ]
+}
+
+@test "chmod a=r sets everyone read-only" {
+    touch "$TMPDIR/f"
+    /bin/chmod 0755 "$TMPDIR/f"
+    applet chmod a=r "$TMPDIR/f"
+    [ "$(stat -c %a "$TMPDIR/f")" = "444" ]
+}
+
+@test "chmod multi-clause spec works" {
+    touch "$TMPDIR/f"
+    /bin/chmod 0600 "$TMPDIR/f"
+    applet chmod u+x,go=r "$TMPDIR/f"
+    [ "$(stat -c %a "$TMPDIR/f")" = "744" ]
+}
+
+@test "chmod implicit who applies to all" {
+    touch "$TMPDIR/f"
+    /bin/chmod 0644 "$TMPDIR/f"
+    applet chmod +x "$TMPDIR/f"
+    [ "$(stat -c %a "$TMPDIR/f")" = "755" ]
+}
+
+@test "chmod = with no perms clears who-bits" {
+    touch "$TMPDIR/f"
+    /bin/chmod 0755 "$TMPDIR/f"
+    applet chmod o= "$TMPDIR/f"
+    [ "$(stat -c %a "$TMPDIR/f")" = "750" ]
+}
+
+@test "chmod rejects unknown symbolic char" {
+    touch "$TMPDIR/f"
+    run applet chmod u+z "$TMPDIR/f"
+    [ "$status" -eq 1 ]
+}

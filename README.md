@@ -5,8 +5,8 @@ written in pure assembly with direct syscalls and no libc.
 
 ## Status
 
-Phase 3c complete. 23 applets, 36760 bytes, 146 tests. `ls` grew long
-form (`-l`), `rm` grew recursive (`-r`/`-R`).
+Phase 3d complete. 23 applets, 41184 bytes, 159 tests. `cp` grew recursive
+(`-r`/`-R`), `chmod` grew symbolic modes.
 
 | Applet | Notes |
 |---|---|
@@ -27,10 +27,10 @@ form (`-l`), `rm` grew recursive (`-r`/`-R`).
 | `touch`    | creates missing, bumps mtime via `utimensat`; no `-a/-m/-t/-d` |
 | `ln`       | hard and `-s` symlink; `-f` overwrites; two-operand form only |
 | `readlink` | basic; no `-f/-e/-m` canonicalization yet |
-| `chmod`    | octal modes only; symbolic forms next |
+| `chmod`    | octal and symbolic modes (`u/g/o/a` × `+/-/=` × `r/w/x`); no `s/t` perms or `-R` yet |
 | `ls`       | sorted names; `-a`, `-l` (numeric uid/gid, fixed col widths, UTC mtime, no `total` line yet); no `-R/-F/-h` |
 | `rm -r`    | recursive removal via in-place path-buffer walk; `-rf` ignores missing |
-| `cp`       | file-to-file and file-to-directory; preserves source mode bits; no `-r/-p/-i` |
+| `cp`       | `-r`/`-R` recursive (preserves symlinks); preserves source mode bits; no `-p/-i` |
 | `mv`       | same-filesystem rename only; cross-device move surfaced as a clear error |
 | `stat`     | key:value summary (File/Size/Type/Mode/Uid/Gid/Mtime); not coreutils-format-compatible |
 | `chown`    | numeric `UID[:GID]` or `:GID` only; no name resolution, no `-R` |

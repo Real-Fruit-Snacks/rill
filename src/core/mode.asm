@@ -56,10 +56,7 @@ format_mode:
 .perms:
     ; Owner.
     mov     eax, edi
-    test    eax, 0o400
-    setnz   cl
     mov     dl, 'r'
-    mov     bl, '-'
     test    eax, 0o400
     jnz     .ow_r
     mov     dl, '-'

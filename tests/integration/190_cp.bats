@@ -65,3 +65,50 @@ teardown() {
     applet cp "$TMPDIR/big" "$TMPDIR/big2"
     diff "$TMPDIR/big" "$TMPDIR/big2"
 }
+
+@test "cp without -r refuses a directory source" {
+    /bin/mkdir "$TMPDIR/d"
+    run applet cp "$TMPDIR/d" "$TMPDIR/dst"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"omitting directory"* ]]
+}
+
+@test "cp -r copies a directory tree to a new name" {
+    /bin/mkdir -p "$TMPDIR/src/sub"
+    echo a > "$TMPDIR/src/x"
+    echo b > "$TMPDIR/src/sub/y"
+    applet cp -r "$TMPDIR/src" "$TMPDIR/copy"
+    [ -d "$TMPDIR/copy" ]
+    [ "$(/bin/cat "$TMPDIR/copy/x")" = "a" ]
+    [ "$(/bin/cat "$TMPDIR/copy/sub/y")" = "b" ]
+}
+
+@test "cp -r preserves symlinks (no follow)" {
+    /bin/mkdir "$TMPDIR/src"
+    /bin/ln -s /tmp "$TMPDIR/src/link"
+    applet cp -r "$TMPDIR/src" "$TMPDIR/copy"
+    [ -L "$TMPDIR/copy/link" ]
+    [ "$(readlink "$TMPDIR/copy/link")" = "/tmp" ]
+}
+
+@test "cp -r into an existing directory copies under it" {
+    /bin/mkdir -p "$TMPDIR/src/nested"
+    echo content > "$TMPDIR/src/nested/file"
+    /bin/mkdir "$TMPDIR/dest"
+    applet cp -r "$TMPDIR/src" "$TMPDIR/dest"
+    [ "$(/bin/cat "$TMPDIR/dest/src/nested/file")" = "content" ]
+}
+
+@test "cp -R is alias for -r" {
+    /bin/mkdir "$TMPDIR/src"
+    touch "$TMPDIR/src/x"
+    applet cp -R "$TMPDIR/src" "$TMPDIR/copy"
+    [ -f "$TMPDIR/copy/x" ]
+}
+
+@test "cp -r preserves directory mode bits" {
+    /bin/mkdir "$TMPDIR/src"
+    /bin/chmod 0750 "$TMPDIR/src"
+    applet cp -r "$TMPDIR/src" "$TMPDIR/copy"
+    [ "$(stat -c %a "$TMPDIR/copy")" = "750" ]
+}
