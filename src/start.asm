@@ -60,6 +60,14 @@ extern applet_tr_main
 extern applet_uniq_main
 extern applet_sort_main
 extern applet_grep_main
+extern applet_whoami_main
+extern applet_id_main
+extern applet_uname_main
+extern applet_hostname_main
+extern applet_date_main
+extern applet_kill_main
+extern applet_which_main
+extern applet_ps_main
 
 ; ---------------------------------------------------------------------------
 ; .rodata
@@ -99,6 +107,14 @@ name_tr:       db "tr", 0
 name_uniq:     db "uniq", 0
 name_sort:     db "sort", 0
 name_grep:     db "grep", 0
+name_whoami:   db "whoami", 0
+name_id:       db "id", 0
+name_uname:    db "uname", 0
+name_hostname: db "hostname", 0
+name_date:     db "date", 0
+name_kill:     db "kill", 0
+name_which:    db "which", 0
+name_ps:       db "ps", 0
 
 usage_msg:      db "rill: applet not found", 10
 usage_msg_len:  equ $ - usage_msg
@@ -140,6 +156,14 @@ applet_table:
     dq name_uniq,     applet_uniq_main
     dq name_sort,     applet_sort_main
     dq name_grep,     applet_grep_main
+    dq name_whoami,   applet_whoami_main
+    dq name_id,       applet_id_main
+    dq name_uname,    applet_uname_main
+    dq name_hostname, applet_hostname_main
+    dq name_date,     applet_date_main
+    dq name_kill,     applet_kill_main
+    dq name_which,    applet_which_main
+    dq name_ps,       applet_ps_main
     dq 0, 0
 
 ; ---------------------------------------------------------------------------

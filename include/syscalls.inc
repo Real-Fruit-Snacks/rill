@@ -17,6 +17,7 @@
 %define SYS_lseek        8
 %define SYS_mmap         9
 %define SYS_brk          12
+%define SYS_access       21
 %define SYS_pipe         22
 %define SYS_dup          32
 %define SYS_dup2         33
@@ -45,6 +46,8 @@
 %define SYS_geteuid      107
 %define SYS_getegid      108
 %define SYS_getdents64   217
+%define SYS_time         201
+%define SYS_clock_gettime 228
 %define SYS_exit_group   231
 %define SYS_openat       257
 %define SYS_unlinkat     263

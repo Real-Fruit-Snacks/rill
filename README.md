@@ -5,14 +5,13 @@ written in pure assembly with direct syscalls and no libc.
 
 ## Status
 
-**Phase 4 complete.** 32 applets, 78200 bytes, 252 tests. Phases 0–4 all
-landed: dispatcher + runtime + file ops + text-processing.
+**Phase 5 complete.** 40 applets, 91176 bytes, 284 tests. Phases 0–5
+all landed: dispatcher + runtime + trivial + file ops + text processing
++ process/system.
 
-Phase 3 polish items still deferred: localtime conversion for mtime
-display (everything is UTC), auto-sized column widths in `ls -l`,
-the `total <N>` header line, and `chown -h`. Phase 4 polish: regex
-support in `grep` (currently literal-only, `-F` is the default), and
-`sort -k`/`-t`/`-f` field-based sorting.
+Polish items still deferred: localtime mtime, auto-sized `ls -l`
+columns, `total <N>` header, `chown -h`, regex in `grep`,
+`sort -k`/`-t`/`-f`.
 
 | Applet | Notes |
 |---|---|
@@ -49,6 +48,14 @@ support in `grep` (currently literal-only, `-F` is the default), and
 | `uniq`     | `-c` count, `-d` dups only, `-u` uniques only; lines truncated at 8 KB |
 | `sort`     | `-r`/`-n`/`-u`; in-memory quicksort (16 MB input cap, 256 K lines); no `-k`/`-t`/`-f` yet |
 | `grep`     | literal pattern (no regex yet — `-F` is the default); `-i`/`-v`/`-n`/`-c`; multi-file `FILE:` prefixes |
+| `whoami`   | uid → name via `/etc/passwd` (numeric fallback) |
+| `id`       | full form, `-u`/`-g`/`-un`/`-gn` |
+| `uname`    | `-a`/`-s`/`-n`/`-r`/`-v`/`-m`; combined short flags |
+| `hostname` | utsname.nodename; setter form deferred |
+| `date`     | `Sun Apr 26 15:37:54 UTC 2026`; UTC only, no `+FORMAT` yet |
+| `kill`     | `-NUM`/`-NAME`/`-SIGNAME`; `-l` lists; default TERM |
+| `which`    | walks `$PATH`; falls back to a hardcoded default if `$PATH` unset |
+| `ps`       | reads `/proc`; PID + comm-name; no flags yet |
 
 ## Build
 

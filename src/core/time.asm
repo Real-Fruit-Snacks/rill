@@ -13,9 +13,11 @@ DEFAULT REL
 
 global unix_to_calendar
 global format_date
+global format_datetime_long
 
 section .rodata
 month_names: db "JanFebMarAprMayJunJulAugSepOctNovDec"
+day_names:   db "SunMonTueWedThuFriSat"
 
 section .text
 
@@ -241,6 +243,149 @@ format_date:
     mov     [rbx + 11], dl
 
     add     rsp, 32
+    pop     r13
+    pop     r12
+    pop     rbx
+    ret
+
+; void format_datetime_long(int64_t epoch_secs /rdi/, char *out /rsi/)
+;
+;   Writes exactly 28 bytes: "DDD Mon DD HH:MM:SS UTC YYYY".
+;   No NUL terminator.
+;
+;   Stack: 4 callee-saved pushes + sub 32 keeps inner-call rsp at 0
+;   mod 16 (32 bytes for the tm struct, 8 for alignment slack).
+format_datetime_long:
+    push    rbx                     ; out
+    push    r12                     ; tm base
+    push    r13                     ; epoch (for dow recompute)
+    push    r14                     ; (alignment)
+    sub     rsp, 32
+
+    mov     rbx, rsi
+    mov     r13, rdi
+    mov     r12, rsp
+
+    ; Calendar fields.
+    mov     rsi, r12
+    call    unix_to_calendar
+
+    ; Day-of-week: (days_since_epoch + 4) % 7 with 0=Sun.
+    mov     rax, r13
+    mov     rcx, 86400
+    xor     rdx, rdx
+    div     rcx                     ; rax = days
+    add     rax, 4
+    mov     rcx, 7
+    xor     rdx, rdx
+    div     rcx                     ; rdx = dow
+
+    lea     rcx, [rax + rax*2]      ; rcx unused; placeholder
+    lea     r8, [rdx + rdx*2]       ; r8 = dow * 3
+    lea     rcx, [rel day_names]
+    add     rcx, r8
+    mov     al, [rcx]
+    mov     [rbx + 0], al
+    mov     al, [rcx + 1]
+    mov     [rbx + 1], al
+    mov     al, [rcx + 2]
+    mov     [rbx + 2], al
+    mov     byte [rbx + 3], ' '
+
+    ; Month name.
+    mov     eax, [r12 + 4]
+    dec     eax
+    lea     r8, [rax + rax*2]
+    lea     rcx, [rel month_names]
+    add     rcx, r8
+    mov     al, [rcx]
+    mov     [rbx + 4], al
+    mov     al, [rcx + 1]
+    mov     [rbx + 5], al
+    mov     al, [rcx + 2]
+    mov     [rbx + 6], al
+    mov     byte [rbx + 7], ' '
+
+    ; Day (space-padded 2).
+    mov     eax, [r12 + 8]
+    mov     ecx, 10
+    xor     edx, edx
+    div     ecx
+    test    eax, eax
+    jnz     .day_two
+    mov     byte [rbx + 8], ' '
+    jmp     .day_ones
+.day_two:
+    add     al, '0'
+    mov     [rbx + 8], al
+.day_ones:
+    add     dl, '0'
+    mov     [rbx + 9], dl
+    mov     byte [rbx + 10], ' '
+
+    ; Hour:Minute:Second (zero-padded).
+    mov     eax, [r12 + 12]
+    mov     ecx, 10
+    xor     edx, edx
+    div     ecx
+    add     al, '0'
+    mov     [rbx + 11], al
+    add     dl, '0'
+    mov     [rbx + 12], dl
+    mov     byte [rbx + 13], ':'
+
+    mov     eax, [r12 + 16]
+    mov     ecx, 10
+    xor     edx, edx
+    div     ecx
+    add     al, '0'
+    mov     [rbx + 14], al
+    add     dl, '0'
+    mov     [rbx + 15], dl
+    mov     byte [rbx + 16], ':'
+
+    mov     eax, [r12 + 20]
+    mov     ecx, 10
+    xor     edx, edx
+    div     ecx
+    add     al, '0'
+    mov     [rbx + 17], al
+    add     dl, '0'
+    mov     [rbx + 18], dl
+
+    mov     byte [rbx + 19], ' '
+    mov     byte [rbx + 20], 'U'
+    mov     byte [rbx + 21], 'T'
+    mov     byte [rbx + 22], 'C'
+    mov     byte [rbx + 23], ' '
+
+    ; Year (4 digits, zero-padded).
+    mov     eax, [r12 + 0]
+    mov     ecx, 1000
+    xor     edx, edx
+    div     ecx
+    add     al, '0'
+    mov     [rbx + 24], al
+
+    mov     eax, edx
+    mov     ecx, 100
+    xor     edx, edx
+    div     ecx
+    add     al, '0'
+    mov     [rbx + 25], al
+
+    mov     eax, edx
+    mov     ecx, 10
+    xor     edx, edx
+    div     ecx
+    add     al, '0'
+    mov     [rbx + 26], al
+
+    add     dl, '0'
+    mov     [rbx + 27], dl
+
+    add     rsp, 32
+    pop     r14
     pop     r13
     pop     r12
     pop     rbx
