@@ -51,6 +51,10 @@ extern applet_cp_main
 extern applet_mv_main
 extern applet_stat_main
 extern applet_chown_main
+extern applet_tee_main
+extern applet_wc_main
+extern applet_head_main
+extern applet_tail_main
 
 ; ---------------------------------------------------------------------------
 ; .rodata
@@ -81,6 +85,10 @@ name_cp:       db "cp", 0
 name_mv:       db "mv", 0
 name_stat:     db "stat", 0
 name_chown:    db "chown", 0
+name_tee:      db "tee", 0
+name_wc:       db "wc", 0
+name_head:     db "head", 0
+name_tail:     db "tail", 0
 
 usage_msg:      db "rill: applet not found", 10
 usage_msg_len:  equ $ - usage_msg
@@ -113,6 +121,10 @@ applet_table:
     dq name_mv,       applet_mv_main
     dq name_stat,     applet_stat_main
     dq name_chown,    applet_chown_main
+    dq name_tee,      applet_tee_main
+    dq name_wc,       applet_wc_main
+    dq name_head,     applet_head_main
+    dq name_tail,     applet_tail_main
     dq 0, 0
 
 ; ---------------------------------------------------------------------------

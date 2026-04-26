@@ -5,17 +5,15 @@ written in pure assembly with direct syscalls and no libc.
 
 ## Status
 
-**Phase 3 complete.** 23 applets, 48016 bytes, 168 tests.
+Phase 4a in progress — text-processing applets. **27 applets, 55976
+bytes, 198 tests.** Phase 3 (file ops, complete) plus the simpler half
+of Phase 4 (`tee`, `wc`, `head`, `tail`).
 
-All 12 file-op applets from the original Phase 3 plan are now landed:
-`mkdir`, `rmdir`, `rm`, `touch`, `ln`, `readlink`, `chmod`, `ls`, `cp`,
-`mv`, `stat`, `chown` — including recursive variants (`rm -r`, `cp -r`,
-`chown -R`), `chmod` symbolic modes, and `/etc/passwd` + `/etc/group`
-name resolution for `ls -l` / `chown` / `stat`.
+Phase 3 polish items still deferred: localtime conversion for mtime
+display (everything is UTC), auto-sized column widths in `ls -l`,
+the `total <N>` header line, and `chown -h`.
 
-Polish items deferred to a later phase: localtime conversion for mtime
-display (everything is UTC right now), auto-sized column widths in
-`ls -l`, the `total <N>` header line, and `chown -h`.
+Phase 4 still open: `cut`, `tr`, `uniq`, `sort`, `grep`.
 
 | Applet | Notes |
 |---|---|
@@ -43,6 +41,10 @@ display (everything is UTC right now), auto-sized column widths in
 | `mv`       | same-filesystem rename only; cross-device move surfaced as a clear error |
 | `stat`     | key:value summary; resolves uid/gid names; mtime as `Mon DD HH:MM` (UTC) |
 | `chown`    | numeric or named `USER[:GROUP]` / `:GROUP`; `-R` recursive (lchown — no symlink follow) |
+| `tee`      | `-a` appends; named-file failures don't abort other outputs; stdout failure aborts |
+| `wc`       | `-l` / `-w` / `-c` columns; multi-file `total` row; bytes-not-chars (no `-m` yet) |
+| `head`     | `-n N` / `-nN` / `-c N` / `-cN`; `==> NAME <==` headers between files |
+| `tail`     | `-n N` / `-nN`; 4 MB sliding window for streams larger than memory |
 
 ## Build
 
