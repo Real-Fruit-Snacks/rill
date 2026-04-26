@@ -55,6 +55,9 @@ extern applet_tee_main
 extern applet_wc_main
 extern applet_head_main
 extern applet_tail_main
+extern applet_cut_main
+extern applet_tr_main
+extern applet_uniq_main
 
 ; ---------------------------------------------------------------------------
 ; .rodata
@@ -89,6 +92,9 @@ name_tee:      db "tee", 0
 name_wc:       db "wc", 0
 name_head:     db "head", 0
 name_tail:     db "tail", 0
+name_cut:      db "cut", 0
+name_tr:       db "tr", 0
+name_uniq:     db "uniq", 0
 
 usage_msg:      db "rill: applet not found", 10
 usage_msg_len:  equ $ - usage_msg
@@ -125,6 +131,9 @@ applet_table:
     dq name_wc,       applet_wc_main
     dq name_head,     applet_head_main
     dq name_tail,     applet_tail_main
+    dq name_cut,      applet_cut_main
+    dq name_tr,       applet_tr_main
+    dq name_uniq,     applet_uniq_main
     dq 0, 0
 
 ; ---------------------------------------------------------------------------
