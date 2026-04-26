@@ -25,6 +25,7 @@
 %define SYS_exit         60
 %define SYS_kill         62
 %define SYS_uname        63
+%define SYS_getcwd       79
 %define SYS_readlink     89
 %define SYS_getuid       102
 %define SYS_getgid       104

@@ -29,14 +29,34 @@ extern basename
 
 ; Applet entry points — one extern + one applet_table row per applet.
 extern applet_true_main
+extern applet_false_main
+extern applet_echo_main
+extern applet_yes_main
+extern applet_cat_main
+extern applet_pwd_main
+extern applet_basename_main
+extern applet_dirname_main
+extern applet_sleep_main
+extern applet_printenv_main
+extern applet_env_main
 
 ; ---------------------------------------------------------------------------
 ; .rodata
 ; ---------------------------------------------------------------------------
 section .rodata
 
-name_rill:  db "rill", 0
-name_true:  db "true", 0
+name_rill:     db "rill", 0
+name_true:     db "true", 0
+name_false:    db "false", 0
+name_echo:     db "echo", 0
+name_yes:      db "yes", 0
+name_cat:      db "cat", 0
+name_pwd:      db "pwd", 0
+name_basename: db "basename", 0
+name_dirname:  db "dirname", 0
+name_sleep:    db "sleep", 0
+name_printenv: db "printenv", 0
+name_env:      db "env", 0
 
 usage_msg:      db "rill: applet not found", 10
 usage_msg_len:  equ $ - usage_msg
@@ -46,7 +66,17 @@ usage_msg_len:  equ $ - usage_msg
 ; Each entry is: { const char *name; int (*main)(int, char**); }
 align 8
 applet_table:
-    dq name_true, applet_true_main
+    dq name_true,     applet_true_main
+    dq name_false,    applet_false_main
+    dq name_echo,     applet_echo_main
+    dq name_yes,      applet_yes_main
+    dq name_cat,      applet_cat_main
+    dq name_pwd,      applet_pwd_main
+    dq name_basename, applet_basename_main
+    dq name_dirname,  applet_dirname_main
+    dq name_sleep,    applet_sleep_main
+    dq name_printenv, applet_printenv_main
+    dq name_env,      applet_env_main
     dq 0, 0
 
 ; ---------------------------------------------------------------------------

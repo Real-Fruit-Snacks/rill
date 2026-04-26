@@ -17,7 +17,7 @@ BATS      ?= bats
 # non-PIE binary at a fixed load address. Newer nasm (2.16+) is noisier
 # than 2.15; this keeps the build quiet on both.
 NASMFLAGS := -f elf64 -g -F dwarf -Iinclude/ -w+all \
-             -w-reloc-abs-qword -w-reloc-rel-dword
+             -w-reloc-abs-qword -w-reloc-rel-dword -w-unknown-warning
 LDFLAGS   := --gc-sections -nostdlib -static -T linker.ld
 
 BUILD     := build
