@@ -58,6 +58,8 @@ extern applet_tail_main
 extern applet_cut_main
 extern applet_tr_main
 extern applet_uniq_main
+extern applet_sort_main
+extern applet_grep_main
 
 ; ---------------------------------------------------------------------------
 ; .rodata
@@ -95,6 +97,8 @@ name_tail:     db "tail", 0
 name_cut:      db "cut", 0
 name_tr:       db "tr", 0
 name_uniq:     db "uniq", 0
+name_sort:     db "sort", 0
+name_grep:     db "grep", 0
 
 usage_msg:      db "rill: applet not found", 10
 usage_msg_len:  equ $ - usage_msg
@@ -134,6 +138,8 @@ applet_table:
     dq name_cut,      applet_cut_main
     dq name_tr,       applet_tr_main
     dq name_uniq,     applet_uniq_main
+    dq name_sort,     applet_sort_main
+    dq name_grep,     applet_grep_main
     dq 0, 0
 
 ; ---------------------------------------------------------------------------

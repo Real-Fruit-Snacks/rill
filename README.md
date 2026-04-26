@@ -5,15 +5,14 @@ written in pure assembly with direct syscalls and no libc.
 
 ## Status
 
-Phase 4b in progress. **30 applets, 68120 bytes, 228 tests.** Phase 3
-complete; Phase 4 has the simple ones (`tee`, `wc`, `head`, `tail`)
-plus the medium ones (`cut`, `tr`, `uniq`).
+**Phase 4 complete.** 32 applets, 78200 bytes, 252 tests. Phases 0–4 all
+landed: dispatcher + runtime + file ops + text-processing.
 
 Phase 3 polish items still deferred: localtime conversion for mtime
 display (everything is UTC), auto-sized column widths in `ls -l`,
-the `total <N>` header line, and `chown -h`.
-
-Phase 4 still open: `sort`, `grep`.
+the `total <N>` header line, and `chown -h`. Phase 4 polish: regex
+support in `grep` (currently literal-only, `-F` is the default), and
+`sort -k`/`-t`/`-f` field-based sorting.
 
 | Applet | Notes |
 |---|---|
@@ -48,6 +47,8 @@ Phase 4 still open: `sort`, `grep`.
 | `cut`      | `-c LIST` / `-b LIST` / `-d DELIM -f LIST`; ranges (`N-M`, `N-`, `-M`); inline forms (`-cLIST`, `-d,`) |
 | `tr`       | translate / `-d` delete / `-s` squeeze; literal + ranges + escapes (`\n` `\t` `\r` `\f` `\v` `\a` `\b` `\\` `\NNN`) |
 | `uniq`     | `-c` count, `-d` dups only, `-u` uniques only; lines truncated at 8 KB |
+| `sort`     | `-r`/`-n`/`-u`; in-memory quicksort (16 MB input cap, 256 K lines); no `-k`/`-t`/`-f` yet |
+| `grep`     | literal pattern (no regex yet — `-F` is the default); `-i`/`-v`/`-n`/`-c`; multi-file `FILE:` prefixes |
 
 ## Build
 
