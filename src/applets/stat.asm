@@ -17,7 +17,7 @@ DEFAULT REL
 
 extern format_uint
 extern format_octal
-extern format_date
+extern format_date_local
 extern uid_to_name
 extern gid_to_name
 extern write_all
@@ -229,7 +229,7 @@ emit_group:
 emit_date:
     sub     rsp, 24                 ; 12-byte date + 12 alignment
     mov     rsi, rsp
-    call    format_date
+    call    format_date_local
     mov     edi, STDOUT_FILENO
     mov     rsi, rsp
     mov     edx, 12

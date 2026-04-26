@@ -6,10 +6,12 @@
 ;   -a   include dotfiles
 ;   -l   long format: <perms> <nlinks> <uid> <gid> <size> <date> <name>
 ;
-; Long format prints uid/gid as numbers (no name resolution), uses fixed
-; column widths (3/5/5/8), and always renders mtime as "Mon DD HH:MM"
-; regardless of age. Recent-vs-old date split, owner/group name lookup,
-; and width auto-sizing land later.
+; Long format auto-sizes column widths based on the entries actually being
+; listed (nlink, owner name, group name, size — one width-discovery pass
+; per directory) and prefaces directory listings with "total <N>" where
+; N is the sum of st_blocks expressed in 1 KiB units (matching coreutils'
+; default block size). mtime always renders as "Mon DD HH:MM"; recent-vs-
+; old date split is still deferred.
 ;
 ; Buffers (.bss):
 ;   ls_dirent_buf   1 MB — getdents64 accumulator (single contiguous run)
@@ -34,7 +36,7 @@ extern is_directory
 extern format_mode
 extern format_uint
 extern format_uint_pad
-extern format_date
+extern format_date_local
 extern uid_to_name
 extern gid_to_name
 extern write_all
@@ -59,6 +61,14 @@ ls_name_ptrs:    resq MAX_ENTRIES
 ls_statbuf:      resb STATBUF_SIZE
 ls_full_path:    resb PATH_BUF_BYTES
 ls_line_buf:     resb LINE_BUF_BYTES
+; 8-byte-aligned scalars first (BSS layout has 1-byte flags last so the
+; qword vars stay naturally aligned without an alignb directive).
+ls_w_nlink:      resq 1                 ; column width: nlink digits
+ls_w_uid:        resq 1                 ; column width: uid label
+ls_w_gid:        resq 1                 ; column width: gid label
+ls_w_size:       resq 1                 ; column width: size digits
+ls_total_blocks: resq 1                 ; sum of st_blocks (in 512B units)
+ls_idbuf:        resb 64                ; scratch for owner/group name probe
 ls_show_hidden:  resb 1
 ls_long_form:    resb 1
 
@@ -69,6 +79,7 @@ opt_la:       db "-la", 0
 opt_al:       db "-al", 0
 prefix_ls:    db "ls", 0
 dot_path:     db ".", 0
+total_prefix: db "total ", 0
 err_overflow: db "ls: directory too large for in-memory buffer", 10
 err_overflow_len: equ $ - err_overflow
 
@@ -251,6 +262,13 @@ list_one:
     test    rax, rax
     js      .err
 
+    ; Single file: natural widths (format_uint_pad/format_owner_field
+    ; never truncate, so width=1 just disables left-pad).
+    mov     qword [rel ls_w_nlink], 1
+    mov     qword [rel ls_w_uid], 1
+    mov     qword [rel ls_w_gid], 1
+    mov     qword [rel ls_w_size], 1
+
     mov     rdi, rbx
     lea     rsi, [rel ls_statbuf]
     lea     rdx, [rel ls_line_buf]
@@ -377,6 +395,17 @@ list_dir_fd:
     jmp     .walk
 
 .walk_done:
+    cmp     byte [rel ls_long_form], 0
+    je      .skip_long_header
+
+    ; Long-form: width-discovery pass (lstat each entry), then "total N\n".
+    ; Even on an empty dir we still emit "total 0", matching coreutils.
+    mov     rdi, r15
+    mov     esi, r12d
+    call    ls_compute_widths
+    call    emit_total_line
+
+.skip_long_header:
     test    r12d, r12d
     jz      .ok
 
@@ -502,7 +531,7 @@ format_long_line:
 
     mov     rdi, [rbp + ST_NLINK]
     mov     rsi, rbx
-    mov     rdx, 3
+    mov     rdx, [rel ls_w_nlink]
     call    format_uint_pad
     add     rbx, rax
     mov     byte [rbx], ' '
@@ -510,7 +539,7 @@ format_long_line:
 
     mov     edi, [rbp + ST_UID]
     mov     rsi, rbx
-    mov     rdx, 8
+    mov     rdx, [rel ls_w_uid]
     call    format_owner_field
     add     rbx, rax
     mov     byte [rbx], ' '
@@ -518,7 +547,7 @@ format_long_line:
 
     mov     edi, [rbp + ST_GID]
     mov     rsi, rbx
-    mov     rdx, 8
+    mov     rdx, [rel ls_w_gid]
     call    format_group_field
     add     rbx, rax
     mov     byte [rbx], ' '
@@ -526,7 +555,7 @@ format_long_line:
 
     mov     rdi, [rbp + ST_SIZE]
     mov     rsi, rbx
-    mov     rdx, 8
+    mov     rdx, [rel ls_w_size]
     call    format_uint_pad
     add     rbx, rax
     mov     byte [rbx], ' '
@@ -534,7 +563,7 @@ format_long_line:
 
     mov     rdi, [rbp + ST_MTIME]
     mov     rsi, rbx
-    call    format_date
+    call    format_date_local
     add     rbx, 12
     mov     byte [rbx], ' '
     inc     rbx
@@ -657,5 +686,187 @@ format_group_field:
     add     rsp, 32
     pop     r12
     pop     rbp
+    pop     rbx
+    ret
+
+; ---------------------------------------------------------------------------
+; ls_compute_widths(prefix_len /rdi/, count /esi/)
+;
+;   For each entry in ls_name_ptrs[0..count), build "<dir>/<name>" in
+;   ls_full_path (the '/' is already at [prefix_len-1]), lstat into
+;   ls_statbuf, accumulate ls_total_blocks, and update ls_w_* with the
+;   max of the per-entry rendered field widths. lstat failures contribute
+;   nothing — the print pass below will surface the error itself.
+;
+;   Stack: 3 callee-saved pushes -> 0 mod 16 at inner call sites.
+ls_compute_widths:
+    push    rbx                     ; prefix_len
+    push    rbp                     ; count (32-bit)
+    push    r12                     ; index
+
+    mov     rbx, rdi
+    mov     ebp, esi
+    xor     r12d, r12d
+
+    mov     qword [rel ls_total_blocks], 0
+    mov     qword [rel ls_w_nlink], 1
+    mov     qword [rel ls_w_uid], 1
+    mov     qword [rel ls_w_gid], 1
+    mov     qword [rel ls_w_size], 1
+
+.loop:
+    cmp     r12d, ebp
+    jge     .done
+
+    mov     rsi, [rel ls_name_ptrs + r12*8]
+    lea     rdi, [rel ls_full_path]
+    add     rdi, rbx
+.copy:
+    mov     al, [rsi]
+    mov     [rdi], al
+    test    al, al
+    jz      .stat
+    inc     rdi
+    inc     rsi
+    jmp     .copy
+.stat:
+    mov     eax, SYS_lstat
+    lea     rdi, [rel ls_full_path]
+    lea     rsi, [rel ls_statbuf]
+    syscall
+    test    rax, rax
+    js      .next
+
+    mov     rax, [rel ls_statbuf + ST_BLOCKS]
+    add     [rel ls_total_blocks], rax
+
+    mov     rdi, [rel ls_statbuf + ST_NLINK]
+    call    digit_count
+    cmp     rax, [rel ls_w_nlink]
+    jbe     .skip_n
+    mov     [rel ls_w_nlink], rax
+.skip_n:
+
+    mov     edi, [rel ls_statbuf + ST_UID]
+    call    uid_label_len
+    cmp     rax, [rel ls_w_uid]
+    jbe     .skip_u
+    mov     [rel ls_w_uid], rax
+.skip_u:
+
+    mov     edi, [rel ls_statbuf + ST_GID]
+    call    gid_label_len
+    cmp     rax, [rel ls_w_gid]
+    jbe     .skip_g
+    mov     [rel ls_w_gid], rax
+.skip_g:
+
+    mov     rdi, [rel ls_statbuf + ST_SIZE]
+    call    digit_count
+    cmp     rax, [rel ls_w_size]
+    jbe     .skip_s
+    mov     [rel ls_w_size], rax
+.skip_s:
+
+.next:
+    inc     r12d
+    jmp     .loop
+
+.done:
+    pop     r12
+    pop     rbp
+    pop     rbx
+    ret
+
+; ---------------------------------------------------------------------------
+; emit_total_line — writes "total <N>\n" where N = ls_total_blocks/2.
+;
+;   coreutils' default --block-size=1024 reports st_blocks (which the
+;   kernel exposes in 512B units) divided by 2. We track ls_total_blocks
+;   in 512B units across the discovery pass and shift here.
+;
+;   Stack: sub 24 from entry's 8 mod 16 -> 0 mod 16 at inner calls.
+emit_total_line:
+    sub     rsp, 24
+
+    mov     edi, STDOUT_FILENO
+    lea     rsi, [rel total_prefix]
+    call    write_cstr
+
+    mov     rdi, [rel ls_total_blocks]
+    shr     rdi, 1
+    mov     rsi, rsp
+    call    format_uint             ; rax = digit count
+
+    mov     rdx, rax
+    mov     edi, STDOUT_FILENO
+    mov     rsi, rsp
+    call    write_all
+
+    mov     edi, STDOUT_FILENO
+    mov     esi, 10
+    call    putc
+
+    add     rsp, 24
+    ret
+
+; ---------------------------------------------------------------------------
+; digit_count(v /rdi/) -> rax = decimal digit count (1 if v=0)
+;
+;   Re-uses format_uint into a 24-byte stack scratch; we only care about
+;   the byte count it returns.
+digit_count:
+    sub     rsp, 24
+    mov     rsi, rsp
+    call    format_uint
+    add     rsp, 24
+    ret
+
+; ---------------------------------------------------------------------------
+; uid_label_len(uid /edi/) / gid_label_len(gid /edi/) -> rax
+;
+;   How many bytes ls -l would actually emit for this id: the resolved
+;   name's length, or — if the id is unknown — the digit count. Mirrors
+;   the format_owner_field/format_group_field decision so the discovered
+;   width stays consistent with what we later render.
+;
+;   Stack: 1 push + sub 32 -> 0 mod 16 at inner calls.
+uid_label_len:
+    push    rbx
+    sub     rsp, 32
+
+    mov     ebx, edi
+    mov     edi, ebx
+    mov     rsi, rsp
+    mov     edx, 32
+    call    uid_to_name
+    test    rax, rax
+    jnz     .out
+
+    mov     edi, ebx
+    mov     rsi, rsp
+    call    format_uint
+.out:
+    add     rsp, 32
+    pop     rbx
+    ret
+
+gid_label_len:
+    push    rbx
+    sub     rsp, 32
+
+    mov     ebx, edi
+    mov     edi, ebx
+    mov     rsi, rsp
+    mov     edx, 32
+    call    gid_to_name
+    test    rax, rax
+    jnz     .out
+
+    mov     edi, ebx
+    mov     rsi, rsp
+    call    format_uint
+.out:
+    add     rsp, 32
     pop     rbx
     ret

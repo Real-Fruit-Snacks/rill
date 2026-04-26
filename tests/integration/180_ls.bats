@@ -111,3 +111,37 @@ teardown() {
     [[ "$out" == *"$cur_user"* ]]
     [[ "$out" == *"$cur_group"* ]]
 }
+
+@test "ls -l of an empty directory prints 'total 0'" {
+    out=$(applet ls -l "$TMPDIR")
+    [ "$(echo "$out" | head -n 1)" = "total 0" ]
+}
+
+@test "ls -l of a directory prints 'total <N>' header" {
+    head -c 4096 /dev/urandom > "$TMPDIR/big"
+    out=$(applet ls -l "$TMPDIR")
+    first=$(echo "$out" | head -n 1)
+    [[ "$first" == "total "* ]]
+    n=${first#total }
+    [ "$n" -ge 4 ]
+}
+
+@test "ls -l auto-sizes the size column to fit" {
+    head -c 12345 /dev/urandom > "$TMPDIR/big"
+    head -c 1     /dev/urandom > "$TMPDIR/tiny"
+    out=$(applet ls -l "$TMPDIR")
+    # Both lines should align: locate "12345" and "1" at the same column
+    # within their respective lines. We check that the size column is
+    # at least as wide as the largest size (5 chars for 12345).
+    [[ "$out" == *"12345"* ]]
+    big_line=$(echo "$out" | grep big)
+    tiny_line=$(echo "$out" | grep tiny)
+    # The padded "1" should appear preceded by spaces (right-aligned).
+    [[ "$tiny_line" == *"    1 "* ]]
+}
+
+@test "ls -l of a single file does not print 'total' header" {
+    echo data > "$TMPDIR/f"
+    out=$(applet ls -l "$TMPDIR/f")
+    [[ "$out" != "total"* ]]
+}

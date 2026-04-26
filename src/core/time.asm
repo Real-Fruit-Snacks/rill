@@ -13,7 +13,10 @@ DEFAULT REL
 
 global unix_to_calendar
 global format_date
+global format_date_local
 global format_datetime_long
+
+extern localtime_offset_secs
 
 section .rodata
 month_names: db "JanFebMarAprMayJunJulAugSepOctNovDec"
@@ -245,6 +248,26 @@ format_date:
     add     rsp, 32
     pop     r13
     pop     r12
+    pop     rbx
+    ret
+
+; void format_date_local(int64_t epoch_secs_utc /rdi/, char *out /rsi/)
+;
+;   Like format_date, but applies the local UTC offset (from /etc/localtime)
+;   so the rendered "Mon DD HH:MM" is local wall time. ls -l and stat use
+;   this; `date` keeps the explicit-UTC formatter so the printed string
+;   matches its trailing zone label.
+format_date_local:
+    push    rbx                     ; saved out ptr
+    push    rbp                     ; (alignment)
+    mov     rbx, rsi
+    mov     rbp, rdi                ; saved epoch
+    call    localtime_offset_secs   ; rax = signed offset
+    add     rax, rbp
+    mov     rdi, rax
+    mov     rsi, rbx
+    call    format_date
+    pop     rbp
     pop     rbx
     ret
 
