@@ -5,8 +5,7 @@ written in pure assembly with direct syscalls and no libc.
 
 ## Status
 
-Phase 2 in progress. Multi-call dispatch, runtime (I/O, fmt, errno), and
-the trivial-applet sweep are landed.
+Phase 3a in progress. 18 applets, 19672 bytes, 98 tests.
 
 | Applet | Notes |
 |---|---|
@@ -21,6 +20,13 @@ the trivial-applet sweep are landed.
 | `sleep`    | integer seconds only (no fractional / unit suffix) |
 | `printenv` | all-env or per-name; missing names → exit 1 |
 | `env`      | print-only; no `-i` / VAR=VAL / exec yet (returns 125) |
+| `mkdir`    | supports `-p` (create parents, ignore EEXIST) |
+| `rmdir`    | empty-directory removal; no `-p` chain yet |
+| `rm`       | `-f` to ignore missing; no `-r` yet (refuses directories) |
+| `touch`    | creates missing, bumps mtime via `utimensat`; no `-a/-m/-t/-d` |
+| `ln`       | hard and `-s` symlink; `-f` overwrites; two-operand form only |
+| `readlink` | basic; no `-f/-e/-m` canonicalization yet |
+| `chmod`    | octal modes only; symbolic forms next |
 
 ## Build
 

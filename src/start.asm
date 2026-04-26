@@ -39,6 +39,13 @@ extern applet_dirname_main
 extern applet_sleep_main
 extern applet_printenv_main
 extern applet_env_main
+extern applet_mkdir_main
+extern applet_rmdir_main
+extern applet_rm_main
+extern applet_touch_main
+extern applet_ln_main
+extern applet_readlink_main
+extern applet_chmod_main
 
 ; ---------------------------------------------------------------------------
 ; .rodata
@@ -57,6 +64,13 @@ name_dirname:  db "dirname", 0
 name_sleep:    db "sleep", 0
 name_printenv: db "printenv", 0
 name_env:      db "env", 0
+name_mkdir:    db "mkdir", 0
+name_rmdir:    db "rmdir", 0
+name_rm:       db "rm", 0
+name_touch:    db "touch", 0
+name_ln:       db "ln", 0
+name_readlink: db "readlink", 0
+name_chmod:    db "chmod", 0
 
 usage_msg:      db "rill: applet not found", 10
 usage_msg_len:  equ $ - usage_msg
@@ -77,6 +91,13 @@ applet_table:
     dq name_sleep,    applet_sleep_main
     dq name_printenv, applet_printenv_main
     dq name_env,      applet_env_main
+    dq name_mkdir,    applet_mkdir_main
+    dq name_rmdir,    applet_rmdir_main
+    dq name_rm,       applet_rm_main
+    dq name_touch,    applet_touch_main
+    dq name_ln,       applet_ln_main
+    dq name_readlink, applet_readlink_main
+    dq name_chmod,    applet_chmod_main
     dq 0, 0
 
 ; ---------------------------------------------------------------------------

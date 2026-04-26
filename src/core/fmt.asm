@@ -4,6 +4,7 @@ BITS 64
 DEFAULT REL
 
 global parse_uint
+global parse_octal
 global format_uint
 
 section .text
@@ -33,6 +34,47 @@ parse_uint:
     jc      .overflow
     add     rax, rdx
     jc      .overflow
+
+    inc     rdi
+    inc     rcx
+    jmp     .loop
+
+.done:
+    test    rcx, rcx
+    jz      .empty
+    mov     [rsi], rax
+    xor     eax, eax
+    ret
+
+.empty:
+    mov     eax, -1
+    ret
+
+.overflow:
+    mov     eax, -2
+    ret
+
+; int parse_octal(const char *s /rdi/, uint64_t *out /rsi/)
+;
+;   Parses a non-negative octal integer (digits 0-7). Stops at the first
+;   non-octal-digit. Mirrors parse_uint's contract:
+;     0  on success
+;    -1  empty / non-digit start
+;    -2  overflow
+parse_octal:
+    xor     eax, eax
+    xor     ecx, ecx
+
+.loop:
+    movzx   edx, byte [rdi]
+    sub     edx, '0'
+    cmp     edx, 7
+    ja      .done
+
+    test    rax, 0xE000000000000000
+    jnz     .overflow
+    shl     rax, 3
+    or      rax, rdx
 
     inc     rdi
     inc     rcx

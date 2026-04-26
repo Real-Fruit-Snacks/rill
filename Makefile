@@ -11,13 +11,15 @@ NASM      ?= nasm
 LD        ?= ld
 BATS      ?= bats
 
-# -w-reloc-{abs,rel}-*: suppress warnings about cross-section relocations.
-# These fire on the applet table (.rodata pointers into .text) and on every
-# RIP-relative LEA into .rodata. Both resolve correctly for our static
-# non-PIE binary at a fixed load address. Newer nasm (2.16+) is noisier
-# than 2.15; this keeps the build quiet on both.
-NASMFLAGS := -f elf64 -g -F dwarf -Iinclude/ -w+all \
-             -w-reloc-abs-qword -w-reloc-rel-dword -w-unknown-warning
+# Probe whether this nasm understands the reloc-* warning categories
+# (NASM 2.16+ emits them on cross-section relocations; 2.15 does not, and
+# rejects the flag with its own warning).
+NASM_HAS_RELOC_WARN := $(shell $(NASM) -f elf64 -w-reloc-abs-qword -o /dev/null /dev/null 2>/dev/null && echo yes)
+ifeq ($(NASM_HAS_RELOC_WARN),yes)
+    NASMFLAGS_RELOC := -w-reloc-abs-qword -w-reloc-rel-dword
+endif
+
+NASMFLAGS := -f elf64 -g -F dwarf -Iinclude/ -w+all $(NASMFLAGS_RELOC)
 LDFLAGS   := --gc-sections -nostdlib -static -T linker.ld
 
 BUILD     := build

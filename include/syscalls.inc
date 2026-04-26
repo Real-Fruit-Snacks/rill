@@ -26,12 +26,28 @@
 %define SYS_kill         62
 %define SYS_uname        63
 %define SYS_getcwd       79
+%define SYS_rename       82
+%define SYS_mkdir        83
+%define SYS_rmdir        84
+%define SYS_creat        85
+%define SYS_link         86
+%define SYS_unlink       87
+%define SYS_symlink      88
 %define SYS_readlink     89
+%define SYS_chmod        90
+%define SYS_fchmod       91
+%define SYS_chown        92
+%define SYS_fchown       93
+%define SYS_lchown       94
+%define SYS_umask        95
 %define SYS_getuid       102
 %define SYS_getgid       104
 %define SYS_geteuid      107
 %define SYS_getegid      108
 %define SYS_exit_group   231
 %define SYS_openat       257
+%define SYS_unlinkat     263
+%define SYS_renameat     264
+%define SYS_utimensat    280
 
 %endif

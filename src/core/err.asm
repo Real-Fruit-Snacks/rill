@@ -38,6 +38,7 @@ msg_enospc:   db "No space left on device", 0
 msg_erofs:    db "Read-only file system", 0
 msg_epipe:    db "Broken pipe", 0
 msg_enametl:  db "File name too long", 0
+msg_enotempty: db "Directory not empty", 0
 msg_eloop:    db "Too many levels of symbolic links", 0
 msg_unknown:  db "Unknown error", 0
 msg_colon:    db ": ", 0
@@ -62,6 +63,7 @@ errno_table:
     dq  30, msg_erofs
     dq  32, msg_epipe
     dq  36, msg_enametl
+    dq  39, msg_enotempty
     dq  40, msg_eloop
     dq  0,  0                       ; sentinel
 
