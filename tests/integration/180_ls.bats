@@ -61,3 +61,44 @@ teardown() {
     [[ "$out" == *"x"* ]]
     [[ "$out" == *"y"* ]]
 }
+
+@test "ls -l renders mode, nlinks, uid, gid, size, date, name" {
+    echo hello > "$TMPDIR/f"
+    /bin/chmod 0644 "$TMPDIR/f"
+    out=$(applet ls -l "$TMPDIR")
+    # Permissions, then a date prefix, then the name.
+    [[ "$out" == *"-rw-r--r--"* ]]
+    [[ "$out" == *"f"* ]]
+}
+
+@test "ls -l of a directory entry shows 'd' prefix" {
+    /bin/mkdir "$TMPDIR/sub"
+    out=$(applet ls -l "$TMPDIR")
+    [[ "$out" == *"drwx"* ]]
+}
+
+@test "ls -l of a symlink shows 'l' prefix" {
+    /bin/ln -s /tmp "$TMPDIR/link"
+    out=$(applet ls -l "$TMPDIR")
+    [[ "$out" == *"lrwx"* ]]
+}
+
+@test "ls -l of a single file shows long line" {
+    echo data > "$TMPDIR/file"
+    out=$(applet ls -l "$TMPDIR/file")
+    [[ "$out" == *"-rw"* ]]
+    [[ "$out" == *"file"* ]]
+}
+
+@test "ls -la combines flags" {
+    touch "$TMPDIR/.hidden" "$TMPDIR/visible"
+    out=$(applet ls -la "$TMPDIR")
+    [[ "$out" == *".hidden"* ]]
+    [[ "$out" == *"visible"* ]]
+}
+
+@test "ls -l size is the actual byte count" {
+    head -c 1234 /dev/urandom > "$TMPDIR/exact"
+    out=$(applet ls -l "$TMPDIR/exact")
+    [[ "$out" == *"1234"* ]]
+}

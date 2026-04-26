@@ -49,3 +49,47 @@ teardown() {
     [ "$status" -eq 0 ]
     [ ! -e "$TMPDIR/exists" ]
 }
+
+@test "rm -r removes an empty directory" {
+    /bin/mkdir "$TMPDIR/empty"
+    applet rm -r "$TMPDIR/empty"
+    [ ! -d "$TMPDIR/empty" ]
+}
+
+@test "rm -r removes a directory tree" {
+    /bin/mkdir -p "$TMPDIR/a/b/c"
+    touch "$TMPDIR/a/x" "$TMPDIR/a/b/y" "$TMPDIR/a/b/c/z"
+    applet rm -r "$TMPDIR/a"
+    [ ! -d "$TMPDIR/a" ]
+}
+
+@test "rm -r through a symlink doesn't follow into target" {
+    /bin/mkdir "$TMPDIR/a"
+    /bin/mkdir "$TMPDIR/elsewhere"
+    touch "$TMPDIR/elsewhere/keep"
+    /bin/ln -s "$TMPDIR/elsewhere" "$TMPDIR/a/link"
+    applet rm -r "$TMPDIR/a"
+    [ ! -e "$TMPDIR/a" ]
+    [ -f "$TMPDIR/elsewhere/keep" ]
+}
+
+@test "rm -R is alias for -r" {
+    /bin/mkdir "$TMPDIR/d"
+    touch "$TMPDIR/d/file"
+    applet rm -R "$TMPDIR/d"
+    [ ! -d "$TMPDIR/d" ]
+}
+
+@test "rm -rf ignores missing path" {
+    run applet rm -rf "$TMPDIR/nope"
+    [ "$status" -eq 0 ]
+}
+
+@test "rm -r reports per-entry errors but continues" {
+    /bin/mkdir "$TMPDIR/d"
+    touch "$TMPDIR/d/file"
+    /bin/chmod 0500 "$TMPDIR/d"
+    run applet rm -r "$TMPDIR/d"
+    /bin/chmod 0700 "$TMPDIR/d"             # cleanup
+    [ "$status" -eq 1 ]
+}

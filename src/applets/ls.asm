@@ -1,17 +1,22 @@
-; ls.asm — list directory contents (or a file's name).
+; ls.asm — list directory contents (or a single path) in short or long form.
 ;
-;   ls [-a] [PATH...]
+;   ls [-a] [-l] [PATH...]
 ;
-; v1 prints one entry per line, sorted by byte-wise name. -a includes
-; dotfiles. Long-form (-l), recursion (-R), human sizes (-h), and
-; classification (-F) are all deferred — each needs runtime support
-; (date formatting, name resolution, directory walker) we don't yet have.
+; Flags:
+;   -a   include dotfiles
+;   -l   long format: <perms> <nlinks> <uid> <gid> <size> <date> <name>
 ;
-; Buffering:
-;   - 1 MB getdents64 accumulator (single contiguous spliced buffer)
-;   - 16384-entry pointer array
-; Both fit easily in .bss. A directory whose entry data exceeds 1 MB
-; produces a clear error rather than silent truncation.
+; Long format prints uid/gid as numbers (no name resolution), uses fixed
+; column widths (3/5/5/8), and always renders mtime as "Mon DD HH:MM"
+; regardless of age. Recent-vs-old date split, owner/group name lookup,
+; and width auto-sizing land later.
+;
+; Buffers (.bss):
+;   ls_dirent_buf   1 MB — getdents64 accumulator (single contiguous run)
+;   ls_name_ptrs    16384 entries (128 KB) — sortable pointers
+;   ls_full_path    4096 — building "<dir>/<name>" for lstat
+;   ls_line_buf     4160 — assembled long-form line before write
+;   ls_statbuf      144  — per-entry lstat scratch
 
 BITS 64
 DEFAULT REL
@@ -22,9 +27,14 @@ DEFAULT REL
 %include "fcntl.inc"
 
 extern streq
+extern strlen
 extern str_lt
 extern isort_strs
 extern is_directory
+extern format_mode
+extern format_uint_pad
+extern format_date
+extern write_all
 extern write_cstr
 extern putc
 extern perror_path
@@ -33,19 +43,27 @@ global applet_ls_main
 
 %define DIRENT_BUF_BYTES 1048576
 %define MAX_ENTRIES      16384
+%define LINE_BUF_BYTES   4160
+%define PATH_BUF_BYTES   4096
 
 %define D_RECLEN 16
 %define D_NAME   19
 
 section .bss
 align 16
-ls_dirent_buf:  resb DIRENT_BUF_BYTES
-ls_name_ptrs:   resq MAX_ENTRIES
-ls_statbuf:     resb STATBUF_SIZE
-ls_show_hidden: resb 1
+ls_dirent_buf:   resb DIRENT_BUF_BYTES
+ls_name_ptrs:    resq MAX_ENTRIES
+ls_statbuf:      resb STATBUF_SIZE
+ls_full_path:    resb PATH_BUF_BYTES
+ls_line_buf:     resb LINE_BUF_BYTES
+ls_show_hidden:  resb 1
+ls_long_form:    resb 1
 
 section .rodata
 opt_a:        db "-a", 0
+opt_l:        db "-l", 0
+opt_la:       db "-la", 0
+opt_al:       db "-al", 0
 prefix_ls:    db "ls", 0
 dot_path:     db ".", 0
 err_overflow: db "ls: directory too large for in-memory buffer", 10
@@ -55,11 +73,11 @@ section .text
 
 ; int applet_ls_main(int argc /edi/, char **argv /rsi/)
 ;
-; Register usage:
+; Register usage (callee-saved across nested calls):
 ;   rbx  argc
 ;   rbp  argv
 ;   r12  first-operand index
-;   r13  operand count (argc - first_op_index)
+;   r13  operand count
 ;   r14  rc
 ;   r15  current path index
 applet_ls_main:
@@ -69,12 +87,13 @@ applet_ls_main:
     push    r13
     push    r14
     push    r15
-    sub     rsp, 8                  ; align to 16 for nested calls
+    sub     rsp, 8
 
     mov     ebx, edi
     mov     rbp, rsi
     xor     r14d, r14d
     mov     byte [rel ls_show_hidden], 0
+    mov     byte [rel ls_long_form], 0
 
     mov     r12d, 1
 .flag_loop:
@@ -85,11 +104,39 @@ applet_ls_main:
     jne     .flags_done
     cmp     byte [rdi + 1], 0
     je      .flags_done
+
     lea     rsi, [rel opt_a]
     call    streq
     test    eax, eax
-    jz      .flags_done
+    jnz     .set_a
+    mov     rdi, [rbp + r12*8]
+    lea     rsi, [rel opt_l]
+    call    streq
+    test    eax, eax
+    jnz     .set_l
+    mov     rdi, [rbp + r12*8]
+    lea     rsi, [rel opt_la]
+    call    streq
+    test    eax, eax
+    jnz     .set_al
+    mov     rdi, [rbp + r12*8]
+    lea     rsi, [rel opt_al]
+    call    streq
+    test    eax, eax
+    jnz     .set_al
+    jmp     .flags_done
+
+.set_a:
     mov     byte [rel ls_show_hidden], 1
+    inc     r12d
+    jmp     .flag_loop
+.set_l:
+    mov     byte [rel ls_long_form], 1
+    inc     r12d
+    jmp     .flag_loop
+.set_al:
+    mov     byte [rel ls_show_hidden], 1
+    mov     byte [rel ls_long_form], 1
     inc     r12d
     jmp     .flag_loop
 
@@ -100,9 +147,8 @@ applet_ls_main:
     test    r13d, r13d
     jnz     .with_paths
 
-    ; No operands → "."
     lea     rdi, [rel dot_path]
-    xor     ecx, ecx                ; no header
+    xor     ecx, ecx
     call    list_one
     mov     r14d, eax
     jmp     .out
@@ -113,7 +159,6 @@ applet_ls_main:
     cmp     r15d, ebx
     jge     .out
 
-    ; Blank line between sections (skip before the first).
     cmp     r15d, r12d
     je      .no_sep
     mov     edi, STDOUT_FILENO
@@ -121,7 +166,6 @@ applet_ls_main:
     call    putc
 .no_sep:
 
-    ; Header only when more than one operand.
     xor     ecx, ecx
     cmp     r13d, 1
     jle     .call_list
@@ -149,10 +193,6 @@ applet_ls_main:
 
 ; ---------------------------------------------------------------------------
 ; list_one(path /rdi/, want_header /ecx/) -> rax = 0 or 1
-;
-; If path is a directory, lists its contents (sorted, one per line). If
-; it's a file or anything else, prints just the path. With want_header
-; non-zero AND path is a directory, prints "<path>:\n" first.
 list_one:
     push    rbx                     ; saved path
     push    rbp                     ; want_header
@@ -165,11 +205,10 @@ list_one:
     lea     rsi, [rel ls_statbuf]
     call    is_directory
     test    eax, eax
-    js      .stat_err
+    js      .err
     test    eax, eax
     jz      .as_file
 
-    ; Directory: optional header, then open + list.
     test    ebp, ebp
     jz      .open
     mov     edi, STDOUT_FILENO
@@ -189,7 +228,7 @@ list_one:
     xor     edx, edx
     syscall
     test    rax, rax
-    js      .open_err
+    js      .err
 
     mov     edi, eax
     mov     rsi, rbx
@@ -197,6 +236,30 @@ list_one:
     jmp     .ret
 
 .as_file:
+    ; In long form, lstat already happened (via is_directory we got mode
+    ; only for type test). Re-stat with lstat for full info.
+    cmp     byte [rel ls_long_form], 0
+    je      .file_short
+
+    mov     eax, SYS_lstat
+    mov     rdi, rbx
+    lea     rsi, [rel ls_statbuf]
+    syscall
+    test    rax, rax
+    js      .err
+
+    mov     rdi, rbx
+    lea     rsi, [rel ls_statbuf]
+    lea     rdx, [rel ls_line_buf]
+    call    format_long_line        ; rax = bytes written
+    mov     rdx, rax
+    mov     edi, STDOUT_FILENO
+    lea     rsi, [rel ls_line_buf]
+    call    write_all
+    xor     eax, eax
+    jmp     .ret
+
+.file_short:
     mov     edi, STDOUT_FILENO
     mov     rsi, rbx
     call    write_cstr
@@ -206,8 +269,7 @@ list_one:
     xor     eax, eax
     jmp     .ret
 
-.stat_err:
-.open_err:
+.err:
     neg     eax
     mov     edx, eax
     lea     rdi, [rel prefix_ls]
@@ -222,21 +284,45 @@ list_one:
     ret
 
 ; ---------------------------------------------------------------------------
-; list_dir_fd(fd /edi/, path /rsi/) -> rax = 0 or 1
-;
-; Reads all entries via getdents64 into ls_dirent_buf, builds the pointer
-; array (filtering dotfiles unless ls_show_hidden), sorts, prints. Closes
-; fd before returning. path is used only for error messages.
+; list_dir_fd(fd /edi/, dir_path /rsi/) -> rax = 0 or 1
 list_dir_fd:
     push    rbx                     ; fd
-    push    rbp                     ; total bytes
+    push    rbp                     ; total bytes from getdents
     push    r12                     ; ptr count
     push    r13                     ; cursor / printer
-    push    r14                     ; saved path
+    push    r14                     ; saved dir_path
+    push    r15                     ; path-prefix length (where to append name)
+    sub     rsp, 8                  ; align
 
     mov     ebx, edi
     mov     r14, rsi
     xor     ebp, ebp
+
+    ; Build ls_full_path = "<dir_path>/"  (used to lstat each entry)
+    lea     rdi, [rel ls_full_path]
+    mov     rsi, r14
+.copy_dir:
+    mov     al, [rsi]
+    test    al, al
+    jz      .copy_dir_done
+    mov     [rdi], al
+    inc     rdi
+    inc     rsi
+    jmp     .copy_dir
+.copy_dir_done:
+    ; Avoid duplicate slash if dir_path already ends with '/'.
+    lea     rcx, [rel ls_full_path]
+    cmp     rdi, rcx
+    je      .add_slash              ; empty path → still need '/'
+    cmp     byte [rdi - 1], '/'
+    je      .no_slash
+.add_slash:
+    mov     byte [rdi], '/'
+    inc     rdi
+.no_slash:
+    lea     rcx, [rel ls_full_path]
+    mov     r15, rdi
+    sub     r15, rcx                ; r15 = path-prefix length
 
 .read_loop:
     mov     eax, DIRENT_BUF_BYTES
@@ -271,7 +357,6 @@ list_dir_fd:
     movzx   ecx, word [rdi + D_RECLEN]
     lea     rsi, [rdi + D_NAME]
 
-    ; Filter dotfiles unless -a.
     cmp     byte [rsi], '.'
     jne     .keep
     mov     al, [rel ls_show_hidden]
@@ -300,6 +385,43 @@ list_dir_fd:
 .print:
     cmp     r13d, r12d
     jge     .ok
+
+    cmp     byte [rel ls_long_form], 0
+    je      .print_short
+
+    ; Long: lstat full_path then format_long_line.
+    mov     rsi, [rel ls_name_ptrs + r13*8]
+    lea     rdi, [rel ls_full_path]
+    add     rdi, r15
+.append_name:
+    mov     al, [rsi]
+    mov     [rdi], al
+    test    al, al
+    jz      .stat_now
+    inc     rdi
+    inc     rsi
+    jmp     .append_name
+.stat_now:
+    mov     eax, SYS_lstat
+    lea     rdi, [rel ls_full_path]
+    lea     rsi, [rel ls_statbuf]
+    syscall
+    test    rax, rax
+    js      .skip_entry             ; surface as silently-skipped; uncommon
+
+    mov     rdi, [rel ls_name_ptrs + r13*8]
+    lea     rsi, [rel ls_statbuf]
+    lea     rdx, [rel ls_line_buf]
+    call    format_long_line
+    mov     rdx, rax
+    mov     edi, STDOUT_FILENO
+    lea     rsi, [rel ls_line_buf]
+    call    write_all
+.skip_entry:
+    inc     r13d
+    jmp     .print
+
+.print_short:
     mov     edi, STDOUT_FILENO
     mov     rsi, [rel ls_name_ptrs + r13*8]
     call    write_cstr
@@ -327,7 +449,7 @@ list_dir_fd:
     jmp     .ret
 
 .read_err:
-    mov     r13d, eax               ; preserve -errno across close
+    mov     r13d, eax
     mov     eax, SYS_close
     mov     edi, ebx
     syscall
@@ -340,7 +462,96 @@ list_dir_fd:
     mov     eax, 1
 
 .ret:
+    add     rsp, 8
+    pop     r15
     pop     r14
+    pop     r13
+    pop     r12
+    pop     rbp
+    pop     rbx
+    ret
+
+; ---------------------------------------------------------------------------
+; format_long_line(name /rdi/, statbuf /rsi/, out /rdx/) -> rax = bytes
+;
+;   Layout: "<perms> <nlinks 3> <uid 5> <gid 5> <size 8> <date 12> <name>\n"
+;
+;   Stack: 4 pushes + sub 8 = 40 bytes = 8 mod 16; from entry 8 + 8 = 0
+;   mod 16 at internal call sites.
+format_long_line:
+    push    rbx                     ; out cursor
+    push    rbp                     ; statbuf
+    push    r12                     ; saved name
+    push    r13                     ; out start
+    sub     rsp, 8
+
+    mov     r12, rdi
+    mov     rbp, rsi
+    mov     rbx, rdx
+    mov     r13, rdx
+
+    mov     edi, [rbp + ST_MODE]
+    mov     rsi, rbx
+    call    format_mode
+    add     rbx, 10
+    mov     byte [rbx], ' '
+    inc     rbx
+
+    mov     rdi, [rbp + ST_NLINK]
+    mov     rsi, rbx
+    mov     rdx, 3
+    call    format_uint_pad
+    add     rbx, rax
+    mov     byte [rbx], ' '
+    inc     rbx
+
+    mov     edi, [rbp + ST_UID]
+    mov     rsi, rbx
+    mov     rdx, 5
+    call    format_uint_pad
+    add     rbx, rax
+    mov     byte [rbx], ' '
+    inc     rbx
+
+    mov     edi, [rbp + ST_GID]
+    mov     rsi, rbx
+    mov     rdx, 5
+    call    format_uint_pad
+    add     rbx, rax
+    mov     byte [rbx], ' '
+    inc     rbx
+
+    mov     rdi, [rbp + ST_SIZE]
+    mov     rsi, rbx
+    mov     rdx, 8
+    call    format_uint_pad
+    add     rbx, rax
+    mov     byte [rbx], ' '
+    inc     rbx
+
+    mov     rdi, [rbp + ST_MTIME]
+    mov     rsi, rbx
+    call    format_date
+    add     rbx, 12
+    mov     byte [rbx], ' '
+    inc     rbx
+
+.copy_name:
+    mov     al, [r12]
+    test    al, al
+    jz      .terminate
+    mov     [rbx], al
+    inc     rbx
+    inc     r12
+    jmp     .copy_name
+
+.terminate:
+    mov     byte [rbx], 10
+    inc     rbx
+    mov     rax, rbx
+    sub     rax, r13
+
+    add     rsp, 8
     pop     r13
     pop     r12
     pop     rbp

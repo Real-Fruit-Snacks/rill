@@ -5,7 +5,8 @@ written in pure assembly with direct syscalls and no libc.
 
 ## Status
 
-Phase 3b complete. 23 applets, 30496 bytes, 134 tests.
+Phase 3c complete. 23 applets, 36760 bytes, 146 tests. `ls` grew long
+form (`-l`), `rm` grew recursive (`-r`/`-R`).
 
 | Applet | Notes |
 |---|---|
@@ -27,7 +28,8 @@ Phase 3b complete. 23 applets, 30496 bytes, 134 tests.
 | `ln`       | hard and `-s` symlink; `-f` overwrites; two-operand form only |
 | `readlink` | basic; no `-f/-e/-m` canonicalization yet |
 | `chmod`    | octal modes only; symbolic forms next |
-| `ls`       | sorted names (one per line), `-a` for dotfiles; no `-l/-h/-F/-R` yet |
+| `ls`       | sorted names; `-a`, `-l` (numeric uid/gid, fixed col widths, UTC mtime, no `total` line yet); no `-R/-F/-h` |
+| `rm -r`    | recursive removal via in-place path-buffer walk; `-rf` ignores missing |
 | `cp`       | file-to-file and file-to-directory; preserves source mode bits; no `-r/-p/-i` |
 | `mv`       | same-filesystem rename only; cross-device move surfaced as a clear error |
 | `stat`     | key:value summary (File/Size/Type/Mode/Uid/Gid/Mtime); not coreutils-format-compatible |

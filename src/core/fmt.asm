@@ -6,6 +6,7 @@ DEFAULT REL
 global parse_uint
 global parse_octal
 global format_uint
+global format_uint_pad
 global format_octal
 
 section .text
@@ -128,6 +129,57 @@ format_uint:
     mov     rcx, rax
     rep     movsb
     pop     rax
+    ret
+
+; size_t format_uint_pad(uint64_t v /rdi/, char *buf /rsi/, size_t width /rdx/)
+;
+;   Writes v in decimal, right-aligned in `width` columns, left-padded
+;   with spaces. If the natural width exceeds `width`, the value is
+;   written in full (no truncation). Returns the number of bytes written.
+;
+;   Stack: 3 callee-saved pushes + sub 32 -> 56 bytes -> 8 mod 16 from
+;   entry's 8 mod 16 = 0 mod 16 at internal call sites.
+format_uint_pad:
+    push    rbx
+    push    r12
+    push    r13
+    sub     rsp, 32                 ; 24 bytes scratch + 8 align
+
+    mov     rbx, rsi                ; out buf
+    mov     r12, rdx                ; width
+
+    mov     rsi, rsp
+    call    format_uint
+    mov     r13, rax                ; digit count
+
+    cmp     r13, r12
+    jge     .no_pad
+
+    mov     rcx, r12
+    sub     rcx, r13
+    mov     rdi, rbx
+    mov     al, ' '
+    rep     stosb
+
+    mov     rsi, rsp
+    mov     rcx, r13
+    rep     movsb
+
+    mov     rax, r12
+    jmp     .ret
+
+.no_pad:
+    mov     rdi, rbx
+    mov     rsi, rsp
+    mov     rcx, r13
+    rep     movsb
+    mov     rax, r13
+
+.ret:
+    add     rsp, 32
+    pop     r13
+    pop     r12
+    pop     rbx
     ret
 
 ; size_t format_octal(uint64_t v /rdi/, char *buf /rsi/)
