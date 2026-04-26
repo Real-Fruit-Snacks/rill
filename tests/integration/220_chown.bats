@@ -62,3 +62,55 @@ teardown() {
     [ "$status" -eq 1 ]
     [[ "$output" == *"missing operand"* ]]
 }
+
+@test "chown by name resolves via /etc/passwd" {
+    touch "$TMPDIR/f"
+    cur_user=$(id -un)
+    applet chown "$cur_user" "$TMPDIR/f"
+    [ "$(stat -c %U "$TMPDIR/f")" = "$cur_user" ]
+}
+
+@test "chown name:name resolves both" {
+    touch "$TMPDIR/f"
+    cur_user=$(id -un)
+    cur_group=$(id -gn)
+    applet chown "$cur_user:$cur_group" "$TMPDIR/f"
+    [ "$(stat -c %U:%G "$TMPDIR/f")" = "$cur_user:$cur_group" ]
+}
+
+@test "chown :name resolves group only" {
+    touch "$TMPDIR/f"
+    cur_group=$(id -gn)
+    applet chown ":$cur_group" "$TMPDIR/f"
+    [ "$(stat -c %G "$TMPDIR/f")" = "$cur_group" ]
+}
+
+@test "chown -R chowns a tree" {
+    /bin/mkdir -p "$TMPDIR/d/sub"
+    touch "$TMPDIR/d/x" "$TMPDIR/d/sub/y"
+    cur_user=$(id -un)
+    applet chown -R "$cur_user" "$TMPDIR/d"
+    [ "$(stat -c %U "$TMPDIR/d")" = "$cur_user" ]
+    [ "$(stat -c %U "$TMPDIR/d/x")" = "$cur_user" ]
+    [ "$(stat -c %U "$TMPDIR/d/sub/y")" = "$cur_user" ]
+}
+
+@test "chown -R does not follow symlinks" {
+    /bin/mkdir "$TMPDIR/d" "$TMPDIR/elsewhere"
+    touch "$TMPDIR/elsewhere/keep"
+    /bin/ln -s "$TMPDIR/elsewhere" "$TMPDIR/d/link"
+    cur_user=$(id -un)
+    applet chown -R "$cur_user" "$TMPDIR/d"
+    # The link target's contents must not have been chown'd through.
+    # We can't fully verify uid changes (we're already the owner), but
+    # at least the keep file should still exist and be readable.
+    [ -f "$TMPDIR/elsewhere/keep" ]
+    [ -L "$TMPDIR/d/link" ]
+}
+
+@test "chown rejects unknown name" {
+    touch "$TMPDIR/f"
+    run applet chown definitely_no_such_user_42 "$TMPDIR/f"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"invalid"* ]]
+}

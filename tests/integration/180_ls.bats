@@ -102,3 +102,12 @@ teardown() {
     out=$(applet ls -l "$TMPDIR/exact")
     [[ "$out" == *"1234"* ]]
 }
+
+@test "ls -l shows username and groupname (when resolvable)" {
+    touch "$TMPDIR/f"
+    cur_user=$(id -un)
+    cur_group=$(id -gn)
+    out=$(applet ls -l "$TMPDIR/f")
+    [[ "$out" == *"$cur_user"* ]]
+    [[ "$out" == *"$cur_group"* ]]
+}

@@ -17,6 +17,9 @@ DEFAULT REL
 
 extern format_uint
 extern format_octal
+extern format_date
+extern uid_to_name
+extern gid_to_name
 extern write_all
 extern write_cstr
 extern putc
@@ -108,25 +111,25 @@ applet_stat_main:
     call    emit_octal
     call    emit_newline
 
-    ; Uid:
+    ; Uid: prefer username, fall back to numeric.
     lea     rsi, [rel lbl_uid]
     call    emit_label
     mov     edi, [rel stat_buf + ST_UID]
-    call    emit_uint
+    call    emit_owner
     call    emit_newline
 
-    ; Gid:
+    ; Gid: prefer groupname, fall back to numeric.
     lea     rsi, [rel lbl_gid]
     call    emit_label
     mov     edi, [rel stat_buf + ST_GID]
-    call    emit_uint
+    call    emit_group
     call    emit_newline
 
-    ; Mtime: (unix epoch seconds for now)
+    ; Mtime: calendar date "Mon DD HH:MM" (UTC for now).
     lea     rsi, [rel lbl_mtime]
     call    emit_label
     mov     rdi, [rel stat_buf + ST_MTIME]
-    call    emit_uint
+    call    emit_date
     call    emit_newline
 
     inc     r12d
@@ -174,6 +177,65 @@ emit_newline:
     mov     edi, STDOUT_FILENO
     mov     esi, 10
     jmp     putc
+
+; emit_owner(edi /uid/) — prints username if /etc/passwd resolves it,
+; otherwise the numeric uid.
+emit_owner:
+    sub     rsp, 40                 ; 32-byte scratch + 8 align
+    mov     rsi, rsp
+    mov     edx, 32
+    push    rdi
+    sub     rsp, 8
+    call    uid_to_name
+    add     rsp, 8
+    pop     rdi
+    test    rax, rax
+    jnz     .have
+
+    mov     rsi, rsp
+    call    format_uint
+
+.have:
+    mov     rdx, rax
+    mov     edi, STDOUT_FILENO
+    mov     rsi, rsp
+    call    write_all
+    add     rsp, 40
+    ret
+
+emit_group:
+    sub     rsp, 40
+    mov     rsi, rsp
+    mov     edx, 32
+    push    rdi
+    sub     rsp, 8
+    call    gid_to_name
+    add     rsp, 8
+    pop     rdi
+    test    rax, rax
+    jnz     .have
+
+    mov     rsi, rsp
+    call    format_uint
+
+.have:
+    mov     rdx, rax
+    mov     edi, STDOUT_FILENO
+    mov     rsi, rsp
+    call    write_all
+    add     rsp, 40
+    ret
+
+emit_date:
+    sub     rsp, 24                 ; 12-byte date + 12 alignment
+    mov     rsi, rsp
+    call    format_date
+    mov     edi, STDOUT_FILENO
+    mov     rsi, rsp
+    mov     edx, 12
+    call    write_all
+    add     rsp, 24
+    ret
 
 ; emit_uint(rdi /val/)
 emit_uint:

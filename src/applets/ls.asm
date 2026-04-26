@@ -32,8 +32,11 @@ extern str_lt
 extern isort_strs
 extern is_directory
 extern format_mode
+extern format_uint
 extern format_uint_pad
 extern format_date
+extern uid_to_name
+extern gid_to_name
 extern write_all
 extern write_cstr
 extern putc
@@ -507,16 +510,16 @@ format_long_line:
 
     mov     edi, [rbp + ST_UID]
     mov     rsi, rbx
-    mov     rdx, 5
-    call    format_uint_pad
+    mov     rdx, 8
+    call    format_owner_field
     add     rbx, rax
     mov     byte [rbx], ' '
     inc     rbx
 
     mov     edi, [rbp + ST_GID]
     mov     rsi, rbx
-    mov     rdx, 5
-    call    format_uint_pad
+    mov     rdx, 8
+    call    format_group_field
     add     rbx, rax
     mov     byte [rbx], ' '
     inc     rbx
@@ -553,6 +556,105 @@ format_long_line:
 
     add     rsp, 8
     pop     r13
+    pop     r12
+    pop     rbp
+    pop     rbx
+    ret
+
+; ---------------------------------------------------------------------------
+; format_owner_field / format_group_field — write a username/groupname
+; (or numeric fallback) into `buf`, left-aligned and space-padded to
+; `width`. Returns total bytes written (max(width, len)).
+;
+; Stack: 3 pushes + sub 32 = 56 bytes = 8 mod 16; from entry's 8 mod 16,
+; rsp at the inner call is 0 mod 16.
+format_owner_field:
+    push    rbx                     ; id
+    push    rbp                     ; out buf
+    push    r12                     ; width
+    sub     rsp, 32                 ; scratch for name/digits
+
+    mov     ebx, edi
+    mov     rbp, rsi
+    mov     r12, rdx
+
+    mov     edi, ebx
+    mov     rsi, rsp
+    mov     edx, 32
+    call    uid_to_name
+    test    rax, rax
+    jnz     .write
+
+    mov     edi, ebx
+    mov     rsi, rsp
+    call    format_uint
+
+.write:
+    mov     r9, rax                 ; val_len
+    mov     rdi, rbp
+    mov     rsi, rsp
+    mov     rcx, rax
+    rep     movsb
+
+    cmp     r9, r12
+    jge     .done
+
+    mov     rcx, r12
+    sub     rcx, r9
+    mov     al, ' '
+    rep     stosb
+    mov     rax, r12
+    jmp     .ret
+.done:
+    mov     rax, r9
+.ret:
+    add     rsp, 32
+    pop     r12
+    pop     rbp
+    pop     rbx
+    ret
+
+format_group_field:
+    push    rbx
+    push    rbp
+    push    r12
+    sub     rsp, 32
+
+    mov     ebx, edi
+    mov     rbp, rsi
+    mov     r12, rdx
+
+    mov     edi, ebx
+    mov     rsi, rsp
+    mov     edx, 32
+    call    gid_to_name
+    test    rax, rax
+    jnz     .write
+
+    mov     edi, ebx
+    mov     rsi, rsp
+    call    format_uint
+
+.write:
+    mov     r9, rax
+    mov     rdi, rbp
+    mov     rsi, rsp
+    mov     rcx, rax
+    rep     movsb
+
+    cmp     r9, r12
+    jge     .done
+
+    mov     rcx, r12
+    sub     rcx, r9
+    mov     al, ' '
+    rep     stosb
+    mov     rax, r12
+    jmp     .ret
+.done:
+    mov     rax, r9
+.ret:
+    add     rsp, 32
     pop     r12
     pop     rbp
     pop     rbx

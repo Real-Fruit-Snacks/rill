@@ -51,3 +51,19 @@ teardown() {
     [ "$status" -eq 1 ]
     [[ "$output" == *"missing operand"* ]]
 }
+
+@test "stat shows username and groupname when resolvable" {
+    touch "$TMPDIR/f"
+    cur_user=$(id -un)
+    cur_group=$(id -gn)
+    out=$(applet stat "$TMPDIR/f")
+    [[ "$out" == *"Uid:  $cur_user"* ]]
+    [[ "$out" == *"Gid:  $cur_group"* ]]
+}
+
+@test "stat formats Mtime as 'Mon DD HH:MM'" {
+    touch "$TMPDIR/f"
+    out=$(applet stat "$TMPDIR/f")
+    # Three-letter month, two-digit day, HH:MM after a space.
+    grep -qE "Mtime: (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\\s+[0-9]{1,2} [0-9]{2}:[0-9]{2}" <<<"$out"
+}
