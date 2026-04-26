@@ -1,0 +1,29 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nasm binutils make bats file
+
+      - name: Build
+        run: make
+
+      - name: Symlinks
+        run: make symlinks
+
+      - name: Test
+        run: make test
+
+      - name: Size report
+        run: make size

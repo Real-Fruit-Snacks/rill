@@ -1,0 +1,9 @@
+build/
+*.o
+*.swp
+*.bak
+.vscode/
+.idea/
+# Coredumps at repo root (anchored so it doesn't match src/core/)
+/core
+/core.[0-9]*

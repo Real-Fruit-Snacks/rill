@@ -1,0 +1,14 @@
+# Keep LF line endings on every text file. The Makefile, bats tests, and
+# shell scripts will silently break with CRLF endings.
+* text=auto eol=lf
+
+# Be explicit for the file types that exist in this repo.
+*.asm  text eol=lf
+*.inc  text eol=lf
+*.bats text eol=lf
+*.sh   text eol=lf
+*.md   text eol=lf
+*.yml  text eol=lf
+*.ld   text eol=lf
+Makefile text eol=lf
+LICENSE  text eol=lf
