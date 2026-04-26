@@ -1,17 +1,17 @@
 ; chown.asm — change file owner / group.
 ;
-;   chown [-R] USER         FILE...
-;   chown [-R] USER:GROUP   FILE...
-;   chown [-R] :GROUP       FILE...
+;   chown [-R] [-h] USER         FILE...
+;   chown [-R] [-h] USER:GROUP   FILE...
+;   chown [-R] [-h] :GROUP       FILE...
 ;
 ; USER and GROUP may be numeric or named. Named lookup goes through
 ; /etc/passwd and /etc/group (see core/passwd.asm).
 ;
-; -R recurses into directories. We always use lchown(2), so symlinks have
-; their own ownership changed and are never traversed during the walk.
-; This deliberately diverges from coreutils' more nuanced -L/-H/-P matrix
-; in favor of simpler, safer behavior. v1 also doesn't preserve original
-; uid/gid via dereference flags.
+; Without -h, top-level operands that are symlinks are dereferenced —
+; ownership of the target changes (chown(2) syscall). With -h, the
+; symlink itself is changed (lchown(2)). Recursive walks always use
+; lchown to avoid following symlinks during traversal, regardless of -h;
+; coreutils' more nuanced -L/-H/-P matrix is intentionally not modeled.
 
 BITS 64
 DEFAULT REL
@@ -40,9 +40,13 @@ section .bss
 align 16
 chown_path_buf: resb PATH_MAX
 chown_statbuf:  resb STATBUF_SIZE
+chown_nofollow: resb 1                  ; -h: top-level lchown instead of chown
 
 section .rodata
 opt_R:          db "-R", 0
+opt_h:          db "-h", 0
+opt_Rh:         db "-Rh", 0
+opt_hR:         db "-hR", 0
 err_missing:    db "chown: missing operand", 10
 err_missing_len: equ $ - err_missing
 err_bad_id:     db "chown: invalid user/group spec", 10
@@ -73,6 +77,7 @@ applet_chown_main:
     mov     rbp, rsi
     xor     r14d, r14d
     xor     r15d, r15d
+    mov     byte [rel chown_nofollow], 0
 
     mov     r13d, 1
 .flag_loop:
@@ -83,11 +88,24 @@ applet_chown_main:
     jne     .flags_done
     cmp     byte [rdi + 1], 0
     je      .flags_done
-    lea     rsi, [rel opt_R]
-    call    streq
+
+    inc     rdi                         ; consume '-'
+.flag_char:
+    movzx   eax, byte [rdi]
     test    eax, eax
-    jz      .flags_done
-    mov     r15d, 1
+    jz      .next_flag
+    cmp     al, 'R'
+    je      .set_R
+    cmp     al, 'h'
+    je      .set_h
+    jmp     .flags_done                 ; unknown char stops parsing
+.set_R: mov r15d, 1
+        inc rdi
+        jmp .flag_char
+.set_h: mov byte [rel chown_nofollow], 1
+        inc rdi
+        jmp .flag_char
+.next_flag:
     inc     r13d
     jmp     .flag_loop
 
@@ -122,8 +140,13 @@ applet_chown_main:
     test    r15d, r15d
     jnz     .recurse
 
-    ; Non-recursive: lchown(path, uid, gid).
+    ; Non-recursive single file: chown(2) follows symlinks by default;
+    ; -h selects lchown(2) so the link itself is changed.
+    mov     eax, SYS_chown
+    cmp     byte [rel chown_nofollow], 0
+    je      .do_chown
     mov     eax, SYS_lchown
+.do_chown:
     mov     rdi, [rbp + r13*8]
     mov     esi, r12d               ; uid
     mov     rdx, r12

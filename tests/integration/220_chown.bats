@@ -114,3 +114,23 @@ teardown() {
     [ "$status" -eq 1 ]
     [[ "$output" == *"invalid"* ]]
 }
+
+@test "chown -h works on a dangling symlink" {
+    /bin/ln -s /no/such/target "$TMPDIR/dangling"
+    cur_uid=$(id -u)
+    # Without -h: chown follows the link, target is missing → fail.
+    run applet chown "$cur_uid" "$TMPDIR/dangling"
+    [ "$status" -ne 0 ]
+    # With -h: the link itself is targeted; missing target is irrelevant.
+    applet chown -h "$cur_uid" "$TMPDIR/dangling"
+    [ -L "$TMPDIR/dangling" ]
+}
+
+@test "chown -hR combined flags accepted" {
+    /bin/mkdir "$TMPDIR/d"
+    touch "$TMPDIR/d/x"
+    /bin/ln -s /no/such/path "$TMPDIR/d/broken"
+    cur_user=$(id -un)
+    applet chown -hR "$cur_user" "$TMPDIR/d"
+    [ -L "$TMPDIR/d/broken" ]
+}
